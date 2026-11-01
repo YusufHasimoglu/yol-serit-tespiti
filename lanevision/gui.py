@@ -625,7 +625,10 @@ class LaneApp(tk.Tk):
             f"{count} yerel etiketle aday model eğitilecek. Bu işlem sürebilir ve mevcut modeli değiştirmez. Devam edilsin mi?"
         ):
             return
-        candidate=APP_ROOT / "modeller" / "serit_unet_geri_bildirim_candidate.pt"
+        # Feedback-trained weights and their report are experiment artefacts.
+        # Keep them out of the application-model directory: users must review
+        # the external validation before promoting a candidate manually.
+        candidate=APP_ROOT / "sonuclar" / "geri_bildirim" / "serit_unet_geri_bildirim_candidate.pt"
         try:
             subprocess.Popen([
                 sys.executable, str(APP_ROOT / "egit.py"), "--style-aware", "--synthetic", "240",

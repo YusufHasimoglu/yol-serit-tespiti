@@ -58,7 +58,7 @@ def main():
     if args.tusimple_json and args.tusimple_root:
         for e in tusimple_samples(args.tusimple_root,args.tusimple_json,args.limit or None):
             examples.append(e);origins.append('TuSimple');groups.append(f'tusimple-{len(groups)}')
-    if style_aware:
+    if args.bdd_root and args.bdd_json:
         for image,mask,group in bdd_style_samples(args.bdd_root,args.bdd_json,args.limit or None,args.bdd_manifest):
             examples.append((image,mask));origins.append('BDD100K-duz-kesik');groups.append(group)
         if args.bdd_manifest:
