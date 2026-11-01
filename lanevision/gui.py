@@ -26,17 +26,18 @@ from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages
 from .scene import analyze_scene
 
 APP_ROOT = Path(__file__).resolve().parent.parent
-BG = "#09111F"
-SIDEBAR = "#101D32"
-PANEL = "#172A46"
-BLUE = "#56B7F5"
-TEXT = "#F4F8FF"
-MUTED = "#A9B7CC"
-GOOD = "#33D8B0"
-BORDER = "#29415F"
-PANEL_DARK = "#0D192B"
-PANEL_HOVER = "#203A5D"
-WARM = "#F4B860"
+BG = "#070D18"
+SIDEBAR = "#0B1526"
+PANEL = "#111F34"
+BLUE = "#2E9FFF"
+TEXT = "#F4F7FF"
+MUTED = "#A7B5C9"
+GOOD = "#3EF276"
+BORDER = "#29435F"
+PANEL_DARK = "#050B14"
+PANEL_HOVER = "#1B3555"
+WARM = "#F4C84B"
+DANGER = "#C9404B"
 # Teknik modlar test/komut satırı için korunur. Masaüstü arayüzü ise günlük
 # kullanımda yalnızca anlaşılır üç seçeneği gösterir.
 USER_VISIBLE_MODES={
@@ -49,9 +50,13 @@ USER_VISIBLE_MODES={
 class LaneApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("ŞERİT ANALİZİ  |  Akıllı Yol ve Şerit Tespiti")
-        self.geometry("1480x900")
-        self.minsize(1120, 720)
+        self.title("ŞERİT ANALİZİ  |  Yol Şerit Takibi Sistemi")
+        # Windows görüntü ölçeklendirmesinde (özellikle %125) alt eylem çubuğu
+        # ekran dışına taşmasın diye pencereyi kullanılabilir ekrana göre kur.
+        width = min(1440, max(1050, self.winfo_screenwidth() - 72))
+        height = min(780, max(660, self.winfo_screenheight() - 86))
+        self.geometry(f"{width}x{height}")
+        self.minsize(1050, 660)
         self.configure(bg=BG)
         self.current_file: Path | None = None
         self.current_image: np.ndarray | None = None
@@ -99,6 +104,11 @@ class LaneApp(tk.Tk):
         self.scene_brightness = tk.StringVar(value="Görsel analizi bekleniyor")
         self.scene_profile = None
         self.ai_status_var = tk.StringVar(value="AI modeli kontrol ediliyor")
+        self.dashboard_detection = tk.StringVar(value="Analiz bekleniyor")
+        self.dashboard_confidence = tk.StringVar(value="—")
+        self.dashboard_fps = tk.StringVar(value="Hazır")
+        self.dashboard_alert = tk.StringVar(value="Bir görüntü veya video seçin.")
+        self._activity_lines: list[str] = []
         self.auto_detect_var = tk.BooleanVar(value=True)
         self.advanced_visible = False
         self.progress_percent = tk.DoubleVar(value=0)
@@ -106,6 +116,8 @@ class LaneApp(tk.Tk):
         self._configure_styles()
         self._check_ai_ready()
         self._build_ui()
+        self.status.trace_add("write", self._record_status)
+        self._record_status()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._process_messages)
         self.after(200, lambda: self._load_example_if_exists(force=False))
@@ -140,178 +152,300 @@ class LaneApp(tk.Tk):
                         bordercolor=PANEL_DARK, lightcolor=GOOD, darkcolor=GOOD, borderwidth=0)
 
     def _build_ui(self):
-        header = tk.Frame(self, bg=SIDEBAR, highlightbackground=BORDER, highlightthickness=1)
-        header.pack(fill="x", padx=24, pady=(18, 16))
-        brand = tk.Frame(header, bg=SIDEBAR)
-        brand.pack(side="left", padx=20, pady=13)
-        tk.Label(brand,text="◇",bg=SIDEBAR,fg=GOOD,font=("Segoe UI Symbol",30,"bold")).pack(side="left",padx=(0,12))
-        namebox=tk.Frame(brand,bg=SIDEBAR)
-        namebox.pack(side="left")
-        tk.Label(namebox, text="ŞERİT ANALİZİ", bg=SIDEBAR, fg=TEXT,
-                 font=("Segoe UI", 24, "bold")).pack(anchor="w")
-        tk.Label(namebox,text="AKILLI YOL GÖRÜNTÜSÜ ANALİZ PLATFORMU",bg=SIDEBAR,fg=MUTED,
-                 font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(1,0))
-        status_badge=tk.Frame(header,bg=PANEL,padx=15,pady=9,highlightbackground=BORDER,highlightthickness=1)
-        status_badge.pack(side="right",padx=20,pady=18)
-        tk.Label(status_badge,text="●  SİSTEM ÇEVRİMİÇİ",bg=PANEL,fg=GOOD,
-                 font=("Segoe UI",10,"bold")).pack()
+        shell = tk.Frame(self, bg=BG)
+        shell.pack(fill="both", expand=True)
 
-        container = tk.Frame(self, bg=BG)
-        container.pack(fill="both", expand=True, padx=24, pady=(0, 10))
-        # Dar ekranlarda son düğmelerin kaybolmaması için kaydırılabilir sol panel.
-        sidebar_holder = tk.Frame(container, bg=SIDEBAR, width=330, highlightbackground=BORDER, highlightthickness=1)
-        sidebar_holder.pack(side="left", fill="y", padx=(0, 15))
-        sidebar_holder.pack_propagate(False)
-        scroller = tk.Canvas(sidebar_holder, bg=SIDEBAR, highlightthickness=0, borderwidth=0)
-        side_scrollbar = tk.Scrollbar(sidebar_holder, orient="vertical", command=scroller.yview)
-        scroller.configure(yscrollcommand=side_scrollbar.set)
-        side_scrollbar.pack(side="right", fill="y")
-        scroller.pack(side="left", fill="both", expand=True)
-        controls = tk.Frame(scroller, bg=SIDEBAR, padx=17, pady=15)
-        controls_item = scroller.create_window((0, 0), window=controls, anchor="nw")
-        controls.bind("<Configure>", lambda _event: scroller.configure(scrollregion=scroller.bbox("all")))
-        scroller.bind("<Configure>", lambda event: scroller.itemconfigure(controls_item, width=event.width))
-        main = tk.Frame(container, bg=BG)
-        main.pack(side="right", fill="both", expand=True)
+        sidebar = tk.Frame(shell, bg=SIDEBAR, width=246, highlightbackground=BORDER, highlightthickness=1)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+        side_brand = tk.Frame(sidebar, bg=SIDEBAR)
+        side_brand.pack(fill="x", padx=22, pady=(25, 22))
+        tk.Label(side_brand, text="╱╲", bg=SIDEBAR, fg=BLUE,
+                 font=("Segoe UI", 25, "bold")).pack(side="left", padx=(0, 9))
+        brand_text = tk.Frame(side_brand, bg=SIDEBAR)
+        brand_text.pack(side="left")
+        tk.Label(brand_text, text="Şerit Analizi", bg=SIDEBAR, fg=TEXT,
+                 font=("Segoe UI", 17, "bold")).pack(anchor="w")
+        tk.Label(brand_text, text="YOL GÖRÜNTÜSÜ PLATFORMU", bg=SIDEBAR, fg=MUTED,
+                 font=("Segoe UI", 7, "bold")).pack(anchor="w", pady=(2, 0))
 
-        self._subhead(controls, "01 / DOSYA SEÇİMİ")
-        self._button(controls, "GÖRÜNTÜ AÇ", self._select_image, primary=True)
-        self._button(controls, "VİDEO AÇ", self._select_video)
-        self._button(controls, "ÖRNEK GÖRÜNTÜYÜ AÇ", lambda: self._load_example_if_exists(force=True))
-        tk.Label(controls, textvariable=self.source_name, bg=SIDEBAR, fg=MUTED, wraplength=277,
-                 justify="left", font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 12))
+        nav = tk.Frame(sidebar, bg=SIDEBAR)
+        nav.pack(fill="x", padx=13)
+        self._nav_buttons = []
+        self._nav_button(nav, "⌂  Ana Panel", lambda: self.image_panel.focus_set(), active=True)
+        self._nav_button(nav, "▣  Görüntü Yükle", self._select_image)
+        self._nav_button(nav, "▷  Video Analizi", self._select_video)
+        self._nav_button(nav, "✎  Etiketle ve Eğit", self._label_current_image)
+        self._nav_button(nav, "⚙  Ayarlar", self._toggle_advanced)
+        tk.Frame(sidebar, bg=BORDER, height=1).pack(fill="x", padx=20, pady=18)
 
-        self._subhead(controls, "01B / VİDEO KARESİ")
-        tk.Label(controls, textvariable=self.video_frame_text, bg=SIDEBAR, fg=MUTED,
-                 font=("Segoe UI", 9)).pack(anchor="w")
-        self.video_seek = tk.Scale(controls, from_=0, to=1, orient="horizontal", showvalue=False,
+        quick = tk.Frame(sidebar, bg=SIDEBAR)
+        quick.pack(fill="x", padx=20)
+        tk.Label(quick, text="HIZLI ERİŞİM", bg=SIDEBAR, fg=MUTED,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(0, 8))
+        self._button(quick, "ÖRNEK GÖRÜNTÜ", lambda: self._load_example_if_exists(force=True), compact=True)
+        self._button(quick, "ARA ADIMLARI KAYDET", self._save_steps, compact=True)
+        side_info = tk.Frame(sidebar, bg=PANEL, padx=12, pady=10, highlightbackground=BORDER, highlightthickness=1)
+        side_info.pack(side="bottom", fill="x", padx=15, pady=17)
+        tk.Label(side_info, text="●  YAPAY ZEKÂ MOTORU", bg=PANEL, fg=GOOD,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        tk.Label(side_info, textvariable=self.ai_status_var, bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 8), wraplength=190, justify="left").pack(anchor="w", pady=(4, 0))
+
+        app = tk.Frame(shell, bg=BG)
+        app.pack(side="right", fill="both", expand=True)
+        topbar = tk.Frame(app, bg=SIDEBAR, height=72, highlightbackground=BORDER, highlightthickness=1)
+        topbar.pack(fill="x")
+        topbar.pack_propagate(False)
+        top_title = tk.Frame(topbar, bg=SIDEBAR)
+        top_title.pack(side="left", padx=26, pady=12)
+        tk.Label(top_title, text="╱╲", bg=SIDEBAR, fg=BLUE,
+                 font=("Segoe UI", 25, "bold")).pack(side="left", padx=(0, 11))
+        title_text = tk.Frame(top_title, bg=SIDEBAR)
+        title_text.pack(side="left")
+        tk.Label(title_text, text="Yol Şerit Takibi Sistemi", bg=SIDEBAR, fg=TEXT,
+                 font=("Segoe UI", 20, "bold")).pack(anchor="w")
+        tk.Label(title_text, text="AI destekli görüntü, video ve kullanıcı geri bildirimi", bg=SIDEBAR, fg=MUTED,
+                 font=("Segoe UI", 8)).pack(anchor="w")
+        badges = tk.Frame(topbar, bg=SIDEBAR)
+        badges.pack(side="right", padx=20, pady=15)
+        self._top_badge(badges, "●  Sistem Aktif", GOOD)
+        self._top_badge(badges, "▣  AI Modeli Hazır", BLUE)
+        self._top_badge(badges, "⌁  Analiz Bekliyor", MUTED)
+
+        content = tk.Frame(app, bg=BG)
+        content.pack(fill="both", expand=True, padx=18, pady=18)
+        rail = tk.Frame(content, bg=BG, width=300)
+        rail.pack(side="right", fill="y", padx=(16, 0))
+        rail.pack_propagate(False)
+        work = tk.Frame(content, bg=BG)
+        work.pack(side="left", fill="both", expand=True)
+
+        source_card = tk.Frame(work, bg=PANEL, padx=15, pady=11, highlightbackground=BORDER, highlightthickness=1)
+        source_card.pack(fill="x", pady=(0, 12))
+        source_head = tk.Frame(source_card, bg=PANEL)
+        source_head.pack(fill="x")
+        tk.Label(source_head, text="▣  Medya ve Tespit Ayarları", bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 11, "bold")).pack(side="left")
+        tk.Label(source_head, textvariable=self.source_name, bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 9), anchor="e").pack(side="right")
+        source_row = tk.Frame(source_card, bg=PANEL)
+        source_row.pack(fill="x", pady=(9, 4))
+        self._button(source_row, "GÖRÜNTÜ AÇ", self._select_image, primary=True, compact=True,
+                     pack=False).pack(side="left", padx=(0, 7))
+        self._button(source_row, "VİDEO AÇ", self._select_video, compact=True,
+                     pack=False).pack(side="left", padx=(0, 12))
+        tk.Checkbutton(source_row, text="Otomatik analiz", variable=self.auto_detect_var,
+                       bg=PANEL, fg=TEXT, selectcolor=PANEL_DARK, activebackground=PANEL,
+                       activeforeground=TEXT, font=("Segoe UI", 9)).pack(side="left", padx=(0, 10))
+        ttk.Combobox(source_row, textvariable=self.mode_var, values=list(USER_VISIBLE_MODES.values()),
+                     state="readonly", width=30).pack(side="left", fill="x", expand=True)
+        self.advanced_btn = self._button(source_row, "⚙ Ayarlar", self._toggle_advanced,
+                                         compact=True, pack=False)
+        self.advanced_btn.pack(side="right", padx=(10, 0))
+        self.advanced_frame = tk.Frame(source_card, bg=PANEL)
+        for index, (label, key, low, high) in enumerate((
+            ("Canny alt eşik", "canny_low", 0, 220),
+            ("Canny üst eşik", "canny_high", 1, 255),
+            ("ROI başlangıcı (%)", "roi_top", 35, 80),
+            ("Hough eşik", "hough_threshold", 5, 90),
+            ("En küçük çizgi (px)", "min_line_length", 10, 140),
+            ("Birleştirme aralığı", "max_line_gap", 5, 120),
+            ("Video yumuşatma (%)", "smoothing", 0, 95),
+        )):
+            if index:
+                tk.Frame(self.advanced_frame, bg=BORDER, height=1).pack(fill="x", pady=2)
+            self._slider(self.advanced_frame, label, key, low, high)
+        profile = tk.Frame(source_card, bg=PANEL)
+        profile.pack(fill="x", pady=(7, 0))
+        self._scene_chip(profile, self.scene_lighting, GOOD)
+        self._scene_chip(profile, self.scene_geometry, BLUE)
+        tk.Label(profile, textvariable=self.scene_brightness, bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 8), anchor="e").pack(side="right", fill="x", expand=True)
+        video_bar = tk.Frame(source_card, bg=PANEL)
+        video_bar.pack(fill="x", pady=(4, 0))
+        tk.Label(video_bar, textvariable=self.video_frame_text, bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 8)).pack(side="left")
+        self.video_seek = tk.Scale(video_bar, from_=0, to=1, orient="horizontal", showvalue=False,
                                    variable=self.video_frame_var, command=self._queue_video_seek,
-                                   state="disabled", bg=SIDEBAR, fg=TEXT, troughcolor=PANEL,
-                                   highlightthickness=0, activebackground=BLUE, bd=0)
-        self.video_seek.pack(fill="x", pady=(1, 10))
+                                   state="disabled", bg=PANEL, fg=TEXT, troughcolor=PANEL_DARK,
+                                   highlightthickness=0, activebackground=BLUE, bd=0, sliderlength=13)
+        self.video_seek.pack(side="right", fill="x", expand=True, padx=(14, 0))
 
-        self._subhead(controls, "02 / AKILLI ANALİZ")
-        tk.Checkbutton(controls,text="Görsel açıldığında otomatik analiz et",variable=self.auto_detect_var,
-                       bg=SIDEBAR,fg=TEXT,selectcolor=PANEL,activebackground=SIDEBAR,
-                       activeforeground=TEXT,font=("Segoe UI",9)).pack(anchor="w",pady=(0,10))
-        self._subhead(controls, "03 / TESPİT AYARLARI")
-        tk.Label(controls, text="Tespit yöntemi", bg=SIDEBAR, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w")
-        ttk.Combobox(controls, textvariable=self.mode_var, values=list(USER_VISIBLE_MODES.values()),
-                     state="readonly", width=34).pack(fill="x", pady=(3,10))
-        tk.Label(controls,text="Otomatik seçim, ışık ve yol şeklini değerlendirir.",
-                 bg=SIDEBAR,fg=MUTED,font=("Segoe UI",8),wraplength=295,
-                 justify="left").pack(anchor="w",pady=(0,8))
-        tk.Label(controls,textvariable=self.ai_status_var,bg=SIDEBAR,
-                 fg=GOOD,font=("Segoe UI",9),wraplength=295).pack(anchor="w",pady=(0,8))
-        self.advanced_btn=self._button(controls,"⚙  GELİŞMİŞ PARAMETRELERİ GÖSTER",self._toggle_advanced)
-        self.advanced_frame=tk.Frame(controls,bg=SIDEBAR)
-        self._slider(self.advanced_frame, "Canny alt eşik", "canny_low", 0, 220)
-        self._slider(self.advanced_frame, "Canny üst eşik", "canny_high", 1, 255)
-        self._slider(self.advanced_frame, "ROI başlangıcı (%)", "roi_top", 35, 80)
-        self._slider(self.advanced_frame, "Hough eşik", "hough_threshold", 5, 90)
-        self._slider(self.advanced_frame, "En küçük çizgi (px)", "min_line_length", 10, 140)
-        self._slider(self.advanced_frame, "Birleştirme aralığı", "max_line_gap", 5, 120)
-        self._slider(self.advanced_frame, "Video yumuşatma (%)", "smoothing", 0, 95)
-
-        self._subhead(controls, "04 / İŞLEMLER")
-        self.btn_live = self._button(controls, "▶ CANLI VİDEOYU BAŞLAT", self._start_live_video)
-        self.btn_live.configure(state="disabled")
-        self.btn_detect = self._button(controls, "ŞERİTLERİ TESPİT ET", self._detect, primary=True)
-        self.btn_save = self._button(controls, "SONUCU KAYDET", self._save_result)
-        self.btn_steps = self._button(controls, "ARA ADIMLARI KAYDET", self._save_steps)
-        self.btn_label = self._button(controls, "EĞİTİM İÇİN ETİKETLE", self._label_current_image)
-        self.btn_stop = self._button(controls, "VİDEOYU DURDUR", self._stop_video)
-        self.btn_stop.configure(state="disabled")
-
-        profile_frame=tk.Frame(main,bg=SIDEBAR,padx=18,pady=13,highlightbackground=BORDER,highlightthickness=1)
-        profile_frame.pack(fill="x",pady=(0,11))
-        tk.Label(profile_frame,text="GÖRÜNTÜ PROFİLİ",bg=SIDEBAR,fg=MUTED,
-                 font=("Segoe UI",9,"bold")).pack(anchor="w",pady=(0,7))
-        row_profile=tk.Frame(profile_frame,bg=SIDEBAR)
-        row_profile.pack(fill="x")
-        tk.Label(row_profile,textvariable=self.scene_lighting,bg=PANEL,fg=GOOD,
-                 font=("Segoe UI",11,"bold"),padx=14,pady=8).pack(side="left",padx=(0,9))
-        tk.Label(row_profile,textvariable=self.scene_geometry,bg=PANEL,fg=BLUE,
-                 font=("Segoe UI",11,"bold"),padx=14,pady=8).pack(side="left",padx=(0,9))
-        tk.Label(row_profile,textvariable=self.scene_brightness,bg=SIDEBAR,fg=MUTED,
-                 font=("Segoe UI",9),anchor="e").pack(side="right",fill="x",expand=True)
-        tool_row = tk.Frame(main, bg=BG)
-        tool_row.pack(fill="x", pady=(1, 9))
-        tk.Label(tool_row, text="ŞERİT ANALİZİ  /  CANLI ÖNİZLEME", bg=BG, fg=TEXT,
-                 font=("Segoe UI", 13, "bold")).pack(side="left")
-        self.stage_combo = ttk.Combobox(tool_row, textvariable=self.selected_stage, state="readonly", width=27,
+        visual = tk.Frame(work, bg=PANEL, padx=12, pady=11, height=300,
+                          highlightbackground=BORDER, highlightthickness=1)
+        visual.pack(fill="both", expand=True)
+        # Görselin doğal piksel boyutu, alt kontrol kartlarını ekrandan itmemeli.
+        visual.pack_propagate(False)
+        visual_head = tk.Frame(visual, bg=PANEL)
+        visual_head.pack(fill="x", pady=(0, 8))
+        tk.Label(visual_head, text="◉  Canlı Görüntü · Şerit Tespiti", bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 12, "bold")).pack(side="left")
+        self.stage_combo = ttk.Combobox(visual_head, textvariable=self.selected_stage, state="readonly", width=24,
                      values=["01 Orijinal", "02 Gri ton", "03 Bulaniklastirma", "04 Canny kenarlar",
                              "05 ROI maskesi", "06 ROI kenarlari", "07 Hough dogrulari", "08 Sonuc",
                              "09 AI olasilik haritasi", "10 AI sinif maskeleri"])
         self.stage_combo.pack(side="right")
         self.selected_stage.trace_add("write", lambda *_: self._refresh_stage())
-        visual_frame = tk.Frame(main, bg=PANEL, padx=12, pady=12, highlightbackground=BORDER, highlightthickness=1)
-        visual_frame.pack(fill="both", expand=True)
-        self.image_panel = tk.Label(visual_frame, bg=PANEL_DARK, fg=MUTED,
+        self.image_panel = tk.Label(visual, bg=PANEL_DARK, fg=MUTED,
                                     text="Bir fotoğraf veya video açın", font=("Segoe UI", 13))
         self.image_panel.pack(fill="both", expand=True)
         self.image_panel.bind("<Configure>", lambda *_: self._render_preview())
 
-        stats = tk.Frame(main, bg=BG)
-        stats.pack(fill="x", pady=(12, 7))
-        card_accents=(GOOD, BLUE, WARM, "#C084FC")
-        for i, (title, var) in enumerate((("SOL ŞERİT", self.metric_left),
-                                           ("SAĞ ŞERİT", self.metric_right),
-                                           ("MERKEZ SAPMASI", self.metric_offset),
-                                           ("ÇİZGİ DESTEĞİ", self.metric_segments))):
-            card = tk.Frame(stats, bg=PANEL, padx=13, pady=9, highlightbackground=BORDER, highlightthickness=1)
-            card.grid(row=0, column=i, sticky="nsew", padx=(0, 8) if i < 3 else 0)
-            stats.grid_columnconfigure(i, weight=1)
-            tk.Frame(card, bg=card_accents[i], height=3).pack(fill="x", pady=(0, 8))
-            tk.Label(card, text=title, bg=PANEL, fg=MUTED,
-                     font=("Segoe UI", 9, "bold")).pack(anchor="w")
-            tk.Label(card, textvariable=var, bg=PANEL, fg=TEXT,
-                     font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(5, 0))
-        tk.Label(main, textvariable=self.algorithm_method, bg=BG, fg=GOOD, anchor="w",
-                 font=("Segoe UI", 10, "bold")).pack(fill="x", pady=(5,0))
-        feedback = tk.Frame(main, bg=SIDEBAR, padx=12, pady=8)
-        feedback.pack(fill="x", pady=(8, 0))
-        tk.Label(feedback, text="EĞİTİM GERİ BİLDİRİMİ", bg=SIDEBAR, fg=BLUE,
-                 font=("Segoe UI", 9, "bold")).pack(anchor="w")
-        tk.Label(feedback, textvariable=self.feedback_status, bg=SIDEBAR, fg=MUTED,
-                 font=("Segoe UI", 9), anchor="w", wraplength=900).pack(fill="x", pady=(2, 6))
-        feedback_actions = tk.Frame(feedback, bg=SIDEBAR)
+        lower = tk.Frame(work, bg=BG)
+        lower.pack(fill="x", pady=(12, 0))
+        lower.grid_columnconfigure(0, weight=6)
+        lower.grid_columnconfigure(1, weight=4)
+        feedback = tk.Frame(lower, bg=PANEL, padx=13, pady=10, highlightbackground=BORDER, highlightthickness=1)
+        feedback.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        tk.Label(feedback, text="✎  Eğitim Geri Bildirimi", bg=PANEL, fg=BLUE,
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        tk.Label(feedback, textvariable=self.feedback_status, bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 8), anchor="w", justify="left", wraplength=520).pack(fill="x", pady=(3, 7))
+        feedback_actions = tk.Frame(feedback, bg=PANEL)
         feedback_actions.pack(anchor="w")
         self.btn_feedback_ok = tk.Button(feedback_actions, text="✓ DOĞRU — EĞİTİME EKLE",
                                          command=self._confirm_detection, state="disabled",
-                                         bg=GOOD, fg="#00172a", activebackground="#6df0d0", bd=0,
-                                         font=("Segoe UI", 9, "bold"), padx=12, pady=6, cursor="hand2")
-        self.btn_feedback_ok.pack(side="left", padx=(0, 7))
-        self.btn_feedback_fix = tk.Button(feedback_actions, text="✎ HATALI — DOĞRUSUNU ÇİZ",
+                                         bg=GOOD, fg="#06130D", activebackground="#7BFF9E", bd=0,
+                                         font=("Segoe UI", 8, "bold"), padx=10, pady=5, cursor="hand2")
+        self.btn_feedback_ok.pack(side="left", padx=(0, 6))
+        self.btn_feedback_fix = tk.Button(feedback_actions, text="✎ HATALI — ÇİZGİLERİ DÜZELT",
                                           command=self._review_incorrect, state="disabled",
-                                          bg=PANEL, fg=TEXT, activebackground="#294767", bd=0,
-                                          font=("Segoe UI", 9, "bold"), padx=12, pady=6, cursor="hand2")
-        self.btn_feedback_fix.pack(side="left")
-        self.btn_feedback_train = tk.Button(feedback_actions, text="YOLOPv2 GERİ BİLDİRİMİNİ EĞİT",
+                                          bg=PANEL_HOVER, fg=TEXT, activebackground="#294C77", bd=0,
+                                          font=("Segoe UI", 8, "bold"), padx=10, pady=5, cursor="hand2")
+        self.btn_feedback_fix.pack(side="left", padx=(0, 6))
+        self.btn_feedback_train = tk.Button(feedback_actions, text="GERİ BİLDİRİMİ EĞİT",
                                             command=self._train_feedback_model,
-                                            bg=BLUE, fg="#00172a", activebackground="#88dbff", bd=0,
-                                            font=("Segoe UI", 9, "bold"), padx=12, pady=6, cursor="hand2")
-        self.btn_feedback_train.pack(side="left", padx=(7, 0))
-        self.progressbar = ttk.Progressbar(main, variable=self.progress_percent, maximum=100,
+                                            bg=BLUE, fg="#04111F", activebackground="#7ACCFF", bd=0,
+                                            font=("Segoe UI", 8, "bold"), padx=10, pady=5, cursor="hand2")
+        self.btn_feedback_train.pack(side="left")
+        log_card = tk.Frame(lower, bg=PANEL, padx=13, pady=10, highlightbackground=BORDER, highlightthickness=1)
+        log_card.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        tk.Label(log_card, text="▤  Sistem Mesajları", bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        self.activity_log = tk.Text(log_card, height=3, bg=PANEL_DARK, fg=MUTED, bd=0,
+                                    highlightthickness=0, font=("Consolas", 8), state="disabled",
+                                    wrap="word", padx=8, pady=6)
+        self.activity_log.pack(fill="both", expand=True, pady=(6, 0))
+
+        action_card = tk.Frame(work, bg=SIDEBAR, padx=12, pady=10, highlightbackground=BORDER, highlightthickness=1)
+        action_card.pack(fill="x", pady=(12, 0))
+        self.progressbar = ttk.Progressbar(action_card, variable=self.progress_percent, maximum=100,
                                            style="Horizontal.TProgressbar")
-        self.progressbar.pack(fill="x", pady=(10, 0))
-        tk.Label(main, textvariable=self.progress_text, bg=BG, fg=MUTED, anchor="w",
-                 font=("Segoe UI", 10)).pack(fill="x", pady=(4, 0))
-        bottom = tk.Frame(self, bg=BG)
-        bottom.pack(fill="x", padx=25, pady=(0, 15))
-        tk.Label(bottom, textvariable=self.status, bg=BG, fg=GOOD, anchor="w",
-                 font=("Segoe UI", 10)).pack(side="left")
-        tk.Label(bottom, text="Eğitim ve araştırma amaçlıdır; gerçek araç kontrolünde kullanılmaz.",
-                 bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="right")
+        self.progressbar.pack(fill="x")
+        tk.Label(action_card, textvariable=self.progress_text, bg=SIDEBAR, fg=MUTED, anchor="w",
+                 font=("Segoe UI", 8)).pack(fill="x", pady=(3, 7))
+        action_row = tk.Frame(action_card, bg=SIDEBAR)
+        action_row.pack(fill="x")
+        for column in range(6):
+            action_row.grid_columnconfigure(column, weight=1)
+        self.btn_live = self._button(action_row, "▣ Canlı İzleme", self._start_live_video, compact=True, pack=False)
+        self.btn_live.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self.btn_live.configure(state="disabled")
+        self.btn_detect = self._button(action_row, "▶ Analizi Başlat", self._detect, primary=True, compact=True, pack=False)
+        self.btn_detect.grid(row=0, column=1, sticky="ew", padx=5)
+        self.btn_label = self._button(action_row, "✎ Etiketle", self._label_current_image, compact=True, pack=False)
+        self.btn_label.grid(row=0, column=2, sticky="ew", padx=5)
+        self.btn_save = self._button(action_row, "⇩ Sonucu Kaydet", self._save_result, compact=True, pack=False)
+        self.btn_save.grid(row=0, column=3, sticky="ew", padx=5)
+        self.btn_steps = self._button(action_row, "▤ Ara Adımlar", self._save_steps, compact=True, pack=False)
+        self.btn_steps.grid(row=0, column=4, sticky="ew", padx=5)
+        self.btn_stop = self._button(action_row, "■ Durdur", self._stop_video, danger=True, compact=True, pack=False)
+        self.btn_stop.grid(row=0, column=5, sticky="ew", padx=(5, 0))
+        self.btn_stop.configure(state="disabled")
+
+        self._rail_card(rail, "✓", "Algılama Durumu", self.dashboard_detection,
+                        "Sol ve sağ şerit takibi", GOOD, large=False)
+        self._rail_card(rail, "◉", "Görsel Destek", self.dashboard_confidence,
+                        "Tespit modelinin destek skoru", GOOD, large=True)
+        self._rail_card(rail, "╱╲", "Şerit Merkezi Sapması", self.metric_offset,
+                        "Görüntü merkezine göre", BLUE, large=True)
+        self._rail_card(rail, "⌁", "Video Akışı", self.dashboard_fps,
+                        "Canlı takip durumu", BLUE, large=True)
+        alert = tk.Frame(rail, bg=PANEL, padx=14, pady=13, highlightbackground=BORDER, highlightthickness=1)
+        alert.pack(fill="x", pady=(0, 10))
+        tk.Label(alert, text="⚠  Uyarılar", bg=PANEL, fg=WARM,
+                 font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        tk.Label(alert, textvariable=self.dashboard_alert, bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 9), justify="left", wraplength=255).pack(anchor="w", pady=(8, 0))
+        tk.Label(rail, textvariable=self.algorithm_method, bg=BG, fg=GOOD,
+                 font=("Segoe UI", 8, "bold"), justify="left", wraplength=275).pack(fill="x", pady=(5, 0))
+
+        footer = tk.Frame(app, bg=BG)
+        footer.pack(fill="x", padx=20, pady=(0, 10))
+        tk.Label(footer, textvariable=self.status, bg=BG, fg=GOOD, anchor="w",
+                 font=("Segoe UI", 9)).pack(side="left")
+        tk.Label(footer, text="Eğitim ve araştırma amaçlıdır; gerçek araç kontrolünde kullanılmaz.",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 8)).pack(side="right")
+
+    def _nav_button(self, parent, label, command, active=False):
+        """Sol gezinti çubuğunda seçili durumu korunan düğme oluştur."""
+        normal = "#1B4276" if active else SIDEBAR
+        button = tk.Button(parent, text=label, command=lambda: None, anchor="w",
+                           bg=normal, fg=TEXT, activebackground=PANEL_HOVER,
+                           activeforeground=TEXT, bd=0, relief="flat", padx=16, pady=11,
+                           font=("Segoe UI", 10, "bold" if active else "normal"), cursor="hand2")
+
+        def activate():
+            for item in self._nav_buttons:
+                item.configure(bg=SIDEBAR, font=("Segoe UI", 10, "normal"))
+            button.configure(bg="#1B4276", font=("Segoe UI", 10, "bold"))
+            command()
+
+        button.configure(command=activate)
+        button.pack(fill="x", pady=2)
+        self._nav_buttons.append(button)
+        return button
+
+    def _top_badge(self, parent, text, color):
+        badge = tk.Frame(parent, bg=PANEL, padx=12, pady=7, highlightbackground=BORDER, highlightthickness=1)
+        badge.pack(side="left", padx=(7, 0))
+        tk.Label(badge, text=text, bg=PANEL, fg=color, font=("Segoe UI", 9, "bold")).pack()
+
+    def _scene_chip(self, parent, variable, color):
+        chip = tk.Frame(parent, bg=PANEL_HOVER, padx=10, pady=5)
+        chip.pack(side="left", padx=(0, 7))
+        tk.Label(chip, textvariable=variable, bg=PANEL_HOVER, fg=color,
+                 font=("Segoe UI", 9, "bold")).pack()
+
+    def _rail_card(self, parent, icon, title, value, subtitle, accent, large=False):
+        card = tk.Frame(parent, bg=PANEL, padx=14, pady=12, highlightbackground=BORDER, highlightthickness=1)
+        card.pack(fill="x", pady=(0, 10))
+        header = tk.Frame(card, bg=PANEL)
+        header.pack(fill="x")
+        tk.Label(header, text=icon, bg=PANEL, fg=accent, font=("Segoe UI Symbol", 16, "bold")).pack(side="left")
+        tk.Label(header, text=title, bg=PANEL, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(9, 0))
+        tk.Label(card, textvariable=value, bg=PANEL, fg=accent if large else TEXT,
+                 font=("Segoe UI", 20 if large else 14, "bold"), anchor="w").pack(fill="x", pady=(7, 1))
+        tk.Label(card, text=subtitle, bg=PANEL, fg=MUTED, font=("Segoe UI", 8), anchor="w").pack(fill="x")
+        return card
+
+    def _record_status(self, *_):
+        """Alt durum ile sağ raydaki uyarı ve kısa olay günlüğünü eşleştir."""
+        message = self.status.get().strip()
+        if not message:
+            return
+        self.dashboard_alert.set(message)
+        if not hasattr(self, "activity_log"):
+            return
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        line = f"●  [{timestamp}]  {message}"
+        if self._activity_lines and self._activity_lines[-1].endswith(message):
+            return
+        self._activity_lines.append(line)
+        self._activity_lines = self._activity_lines[-4:]
+        self.activity_log.configure(state="normal")
+        self.activity_log.delete("1.0", "end")
+        self.activity_log.insert("end", "\n".join(self._activity_lines))
+        self.activity_log.configure(state="disabled")
 
     def _toggle_advanced(self):
-        self.advanced_visible=not self.advanced_visible
+        self.advanced_visible = not self.advanced_visible
         if self.advanced_visible:
-            self.advanced_frame.pack(fill="x",pady=(0,12),after=self.advanced_btn)
+            self.advanced_frame.pack(fill="x", pady=(8, 0))
         else:
             self.advanced_frame.pack_forget()
-        self.advanced_btn.configure(text="⚙  GELİŞMİŞ PARAMETRELERİ GİZLE" if self.advanced_visible
-                                    else "⚙  GELİŞMİŞ PARAMETRELERİ GÖSTER")
+        self.advanced_btn.configure(text="⚙ Ayarları Gizle" if self.advanced_visible else "⚙ Ayarlar")
 
     def _analyze_loaded_scene(self, frame):
         try:
@@ -327,35 +461,38 @@ class LaneApp(tk.Tk):
             self.scene_brightness.set("Yeterli görsel veri bulunamadı")
 
     def _subhead(self, parent, text):
-        tk.Label(parent, text=text, bg=SIDEBAR, fg=BLUE,
+        background = parent.cget("bg")
+        tk.Label(parent, text=text, bg=background, fg=BLUE,
                  font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(9, 8))
 
-    def _button(self, parent, label, command, primary=False):
+    def _button(self, parent, label, command, primary=False, danger=False, compact=False, pack=True):
+        normal = DANGER if danger else (BLUE if primary else PANEL)
+        hover = "#E05662" if danger else ("#82CDF8" if primary else PANEL_HOVER)
+        foreground = TEXT if danger else ("#031321" if primary else TEXT)
+        size, padding = (9, 7) if compact else (10, 10)
         btn = tk.Button(parent, text=label, command=command,
-                        bg=BLUE if primary else PANEL, fg="#031321" if primary else TEXT,
-                        activebackground="#82CDF8" if primary else PANEL_HOVER,
-                        activeforeground="#031321" if primary else TEXT, bd=0,
-                        highlightthickness=0, relief="flat", font=("Segoe UI", 10, "bold"),
-                        padx=11, pady=10, cursor="hand2")
-        normal=BLUE if primary else PANEL
-        hover="#82CDF8" if primary else PANEL_HOVER
+                        bg=normal, fg=foreground, activebackground=hover,
+                        activeforeground=foreground, bd=0, highlightthickness=0, relief="flat",
+                        font=("Segoe UI", size, "bold"), padx=11, pady=padding, cursor="hand2")
         btn.bind("<Enter>", lambda _event: btn.configure(bg=hover))
         btn.bind("<Leave>", lambda _event: btn.configure(bg=normal))
-        btn.pack(fill="x", pady=(0, 5))
+        if pack:
+            btn.pack(fill="x", pady=(0, 5))
         return btn
 
     def _slider(self, parent, label, key, minimum, maximum):
-        row = tk.Frame(parent, bg=SIDEBAR)
+        background = parent.cget("bg")
+        row = tk.Frame(parent, bg=background)
         row.pack(fill="x")
         value = self.settings_vars[key]
-        tk.Label(row, text=label, fg=MUTED, bg=SIDEBAR,
+        tk.Label(row, text=label, fg=MUTED, bg=background,
                  font=("Segoe UI", 9)).pack(side="left")
-        tk.Label(row, textvariable=value, fg=TEXT, bg=SIDEBAR,
+        tk.Label(row, textvariable=value, fg=TEXT, bg=background,
                  font=("Segoe UI", 9, "bold")).pack(side="right")
         tk.Scale(parent, from_=minimum, to=maximum, variable=value, orient="horizontal",
-                 bg=SIDEBAR, fg=TEXT, troughcolor=PANEL, highlightthickness=0,
+                 bg=background, fg=TEXT, troughcolor=PANEL_DARK, highlightthickness=0,
                  activebackground=BLUE, bd=0, showvalue=False, sliderlength=14,
-                 sliderrelief="flat", length=265).pack(fill="x", pady=(0, 1))
+                 sliderrelief="flat").pack(fill="x", pady=(0, 1))
 
     def _settings(self) -> LaneSettings:
         v = self.settings_vars
@@ -406,6 +543,7 @@ class LaneApp(tk.Tk):
         cap = cv2.VideoCapture(str(self.current_file))
         try:
             total = max(0, int(cap.get(cv2.CAP_PROP_FRAME_COUNT))) if cap.isOpened() else 0
+            fps = float(cap.get(cv2.CAP_PROP_FPS)) if cap.isOpened() else 0.0
             ok, frame = cap.read() if cap.isOpened() else (False, None)
         finally:
             cap.release()
@@ -425,6 +563,7 @@ class LaneApp(tk.Tk):
         self.status.set("Video seçildi. Canlı kaplamayı başlatın veya videoyu dosyaya işleyin.")
         self.progress_percent.set(0)
         self.progress_text.set("Canlı video başlatılmayı bekliyor")
+        self.dashboard_fps.set(f"{fps:.1f} FPS · Hazır" if fps > 0 else "Video hazır")
         self._clear_metrics()
 
     def _open_image(self, path: Path):
@@ -445,6 +584,7 @@ class LaneApp(tk.Tk):
         self.selected_stage.set("01 Orijinal")
         self.progress_percent.set(0)
         self.progress_text.set("Görüntü işlenmeyi bekliyor")
+        self.dashboard_fps.set("Tek kare")
         self.status.set(f"Görüntü açıldı: {path.name}. Tespit düğmesine basın.")
         self._clear_metrics()
         self._render_preview()
@@ -511,12 +651,15 @@ class LaneApp(tk.Tk):
         self._clear_metrics()
         self.progress_percent.set(100 * (self.video_selected_index + 1) / self.video_total_frames if self.video_total_frames else 0)
         self.progress_text.set(f"Seçilen kare: {self.video_selected_index + 1} / {self.video_total_frames}")
+        self.dashboard_fps.set("Kare seçildi")
         self.status.set("Kare seçildi. Etiketleyebilir veya bu kareden canlı takibi başlatabilirsiniz.")
         self._render_preview()
 
     def _clear_metrics(self):
         for v in (self.metric_left, self.metric_right, self.metric_offset, self.metric_segments):
             v.set("—")
+        self.dashboard_detection.set("Analiz bekleniyor")
+        self.dashboard_confidence.set("—")
         self._set_feedback_ready(False, "Özgün fotoğrafın tespitinden sonra sonucu doğru veya hatalı olarak işaretleyebilirsiniz.")
 
     def _set_feedback_ready(self, ready, message=None):
@@ -543,6 +686,8 @@ class LaneApp(tk.Tk):
         self.metric_right.set(right_type+" • DOĞRULANDI")
         self.metric_offset.set("ETİKETLENDİ")
         self.metric_segments.set("MANUEL")
+        self.dashboard_detection.set("Kullanıcı onayıyla düzeltildi")
+        self.dashboard_confidence.set("Onaylı")
         self.algorithm_method.set("Kullanıcı düzeltmesi · eğitime eklendi")
         count=style_sample_count(APP_ROOT / "data" / "gercek")
         message=(f"Bu fotoğraf için kaydedilmiş kullanıcı düzeltmesi gösteriliyor ({count} etiketli fotoğraf)."
@@ -586,6 +731,13 @@ class LaneApp(tk.Tk):
                               ("BULUNDU" if detection.right else "BULUNAMADI"))
         self.metric_offset.set(f"{detection.offset_px:+.1f} px" if detection.offset_px is not None else "ÖLÇÜLEMEDİ")
         self.metric_segments.set(str(detection.segment_count) if detection.segment_count else "—")
+        if detection.both_found:
+            self.dashboard_detection.set("Şeritler tespit edildi")
+        elif detection.left is not None or detection.right is not None:
+            self.dashboard_detection.set("Tek şerit tespit edildi")
+        else:
+            self.dashboard_detection.set("Şerit bulunamadı")
+        self.dashboard_confidence.set(f"%{max(0.0, min(1.0, detection.confidence)) * 100:.0f}")
         self.algorithm_method.set("Kullanılan yöntem: " + detection.method)
         profile=getattr(detection,"scene_profile",None)
         if profile is not None:
@@ -662,6 +814,7 @@ class LaneApp(tk.Tk):
         # takipte ise kullanıcı her zaman kaplamalı sonucu görmelidir.
         self.selected_stage.set("08 Sonuc")
         self._set_feedback_ready(False, "Canlı şerit takibi çalışıyor. Hatalı bir karede videoyu durdurun.")
+        self.dashboard_fps.set("Takip aktif")
         self.status.set("Canlı video başladı; şerit kaplaması her karede güncelleniyor.")
         self._next_live_frame()
 
@@ -695,6 +848,7 @@ class LaneApp(tk.Tk):
         source = ("İlk kullanıcı çizimi optik olarak takip ediliyor."
                   if packet.anchored else "Hatalıysa videoyu durdurup doğru çizgileri işaretleyin.")
         self._set_feedback_ready(True, f"Canlı kare {packet.index}. {source}")
+        self.dashboard_fps.set(f"{packet.fps:.1f} FPS")
         self.progress_percent.set(min(100, 100 * packet.index / packet.total) if packet.total else 0)
         self.progress_text.set(f"Canlı kare: {packet.index} / {packet.total if packet.total else '?'}")
         delay = max(1, int(1000 / packet.fps))
@@ -715,6 +869,7 @@ class LaneApp(tk.Tk):
         self.btn_stop.configure(state="disabled")
         self.btn_detect.configure(state="normal")
         self.video_seek.configure(state="normal")
+        self.dashboard_fps.set("Duraklatıldı")
         if self.current_detection is not None:
             self._set_feedback_ready(True, f"Kare {self.live_frame_index} duraklatıldı. Doğruysa kaydedin, hatalıysa çizin.")
         self.status.set(message or f"Canlı video {self.live_frame_index}. karede duraklatıldı.")
@@ -750,13 +905,16 @@ class LaneApp(tk.Tk):
         if self.video_total_frames:
             self.video_seek.configure(state="normal")
         if error:
+            self.dashboard_fps.set("Akış hatası")
             self.status.set("Canlı video sırasında hata oluştu.")
             messagebox.showerror("Canlı video hatası", error)
         elif completed:
+            self.dashboard_fps.set("Tamamlandı")
             self.progress_percent.set(100)
             self._configure_video_seek(self.video_total_frames, 0, enabled=True)
             self.status.set("Canlı video tamamlandı. Baştan oynatabilir veya son kareyi değerlendirebilirsiniz.")
         else:
+            self.dashboard_fps.set("Hazır")
             self.status.set("Canlı video kapatıldı.")
 
     def _run_video(self, settings):
@@ -781,6 +939,7 @@ class LaneApp(tk.Tk):
         self.video_seek.configure(state="disabled")
         self.progress_percent.set(0)
         self.progress_text.set("Video işleniyor...")
+        self.dashboard_fps.set("Dosyaya işleniyor")
         self.status.set("Video kare kare işleniyor. İşlem sırasında arayüz kullanılabilir.")
 
         def worker():
