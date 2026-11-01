@@ -141,7 +141,7 @@ def detect_ai(frame,settings,segmenter):
         return 'kesik' if dashed>solid else 'duz'
 
     left_type,right_type=marking_type(left,'left'),marking_type(right,'right')
-    if left is not None and right is not None and (left_type,right_type) not in {('duz','kesik'),('kesik','kesik')}:
+    if left is not None and right is not None:
         ya=max(left[0][0,1],right[0][0,1]);yb=min(left[0][-1,1],right[0][-1,1])
         if yb>ya+20:
             ys=np.arange(ya,yb+1,4);lx=np.polyval(left[1],ys);rx=np.polyval(right[1],ys)
@@ -239,12 +239,15 @@ class InferenceEngine:
             # Yanlış şerit geçişi, olası bariyer ve aşırı geniş şeritleri ele.
             if lbottom>=rbottom:return False
             marking_types=getattr(obj,'marking_types',None)
-            # A dashed divider and a road edge genuinely converge at the
-            # horizon.  Their independently fitted curves can cross by a few
-            # pixels there, although the measured near-road region is ordered.
-            if marking_types==('kesik','duz'):
-                if ltop>rtop+w*.05:return False
-            elif ltop>=rtop:return False
+            # Continuity tracer already checks the complete sampled pair.
+            # Its small drawing extension can cross at the far endpoint on a
+            # bend; rejecting it again here would discard a valid curve.
+            pair=getattr(obj,'lane_polynomials',None)
+            is_validated_continuity=(isinstance(pair,tuple) and len(pair)==2
+                                     and all(isinstance(item,dict) for item in pair if item is not None))
+            # Other methods only expose endpoints, so retain a small
+            # vanishing-point tolerance while rejecting a real reversal.
+            if not is_validated_continuity and ltop>rtop+w*.06:return False
             width=(rbottom-lbottom)/w
             if not .08 <= width <= .92:return False
             for line in (obj.left,obj.right):
@@ -298,6 +301,28 @@ class InferenceEngine:
         classic.method='Klasik Hough (son yedek)'
         candidates=[c for c in (ai,continuous,color,classic) if c is not None and plausible(c)]
         if not candidates:
+            # Tek bir fiziksel yol işareti, iki sınırdan oluşan taralı alan
+            # üretmeye yetmez; fakat onu tamamen "bulunamadı" diye gizlemek
+            # de kullanıcı açısından yanıltıcıdır.  Sağlam tek izi çizip
+            # alanın taranmadığını açıkça bildir.
+            def plausible_single(obj):
+                if obj is None or (obj.left is None and obj.right is None):
+                    return False
+                line=obj.left or obj.right
+                if abs(line[0][1]-line[1][1])<frame.shape[0]*.12:
+                    return False
+                return obj.confidence>=.16
+
+            partials=[c for c in (continuous,color,ai,classic) if plausible_single(c)]
+            if partials:
+                # Continuity is the only partial path that also preserves
+                # physical dashed/solid evidence; prefer it over a generic
+                # colour curve when both follow the same single marking.
+                partial=max(partials,key=lambda c:c.confidence+(.24 if c is continuous else 0.))
+                partial.method='Tek şerit işareti (alan taranmadı)'
+                if ai is not None and partial is not ai:
+                    partial.stages.update({k:v for k,v in ai.stages.items() if k.startswith(('09','10'))})
+                return attach(partial)
             unknown=_unknown_detection(frame)
             if ai is not None:
                 unknown.stages.update({k:v for k,v in ai.stages.items() if k.startswith(('09','10'))})

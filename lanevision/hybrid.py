@@ -12,10 +12,15 @@ from .core import LaneSettings, Detection
 def color_candidates(frame):
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
-    # Gün ışığı beyaz ve sarı yol işaretleri; parlaklık eşiği lokal karşıtlığı destekler.
-    white = ((v >= 154) & (s <= 100)).astype(np.uint8) * 255
-    yellow = (((h >= 13) & (h <= 38) & (s >= 68) & (v >= 110))).astype(np.uint8) * 255
-    result = cv2.bitwise_or(white, yellow)
+    # Beyaz ile sarı işaretleri aynı aday kümede tut.  Sarı boyanın tonu
+    # güneş, gölge ve kameranın beyaz dengesine göre turuncuya kayabilir;
+    # bu nedenle önceki dar renk aralığı kent içindeki sarı çizgileri
+    # gereksiz biçimde kaçırıyordu.
+    local = cv2.GaussianBlur(v, (0, 0), 5.0)
+    white = ((s <= 118) & (v >= 118) & ((v.astype(np.int16) - local.astype(np.int16)) >= 7))
+    yellow = ((h >= 8) & (h <= 42) & (s >= 52) & (v >= 72)
+              & ((v.astype(np.int16) - local.astype(np.int16)) >= -4))
+    result = (white | yellow).astype(np.uint8) * 255
     result = cv2.morphologyEx(result, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
     return result
 

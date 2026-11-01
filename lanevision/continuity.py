@@ -172,12 +172,14 @@ def _fit_track(rows,seed_x,seed_y,side,w,h):
     ref_x=float(np.polyval(poly,reference_y))/w
     expected=.47 if side=='left' else .83
     deviation=abs(ref_x-expected)
-    # Horizon-side anchor: no bridge towards a barrier or forest.
+    # Horizon-side anchor: keep the search on the road, while allowing a
+    # painted shoulder line to converge late on a tight bend.  The pair
+    # geometry below remains the stronger guard against guardrails.
     xh=float(np.polyval(poly,h*.55))/w
-    if side=='left' and not (.24<=xh<=.70):return None
-    if side=='right' and not (.45<=xh<=.83):return None
-    if side=='left' and not (.12<=ref_x<=.73):return None
-    if side=='right' and not (.52<=ref_x<=1.28):return None
+    if side=='left' and not (.17<=xh<=.74):return None
+    if side=='right' and not (.40<=xh<=.96):return None
+    if side=='left' and not (.08<=ref_x<=.76):return None
+    if side=='right' and not (.45<=ref_x<=1.32):return None
     score= samples*1.55+extent*35-min(50,deviation*95)-rms/w*95
     return {'poly':poly,'points':arr,'score':float(score),'span':(ylow,yhigh),'ref_x':ref_x,'samples':samples,'rms':rms,'side':side}
 
@@ -235,15 +237,19 @@ def _pair(lefts,rights,h,w):
             # A centre dash and road edge naturally meet near the vanishing
             # point.  Tiny negative values there come from independent curve
             # fits, not a crossing at the near (drivable) part of the road.
-            if np.any(widths<-.025) or np.any(widths>1.):continue
+            # Independent curves can meet a few pixels before the vanishing
+            # point on a bend.  A crossing in the near, drivable region is
+            # still invalid, but a tiny far-end overlap is not.
+            near_widths=widths[len(widths)//3:]
+            if np.any(widths<-.060) or np.any(near_widths<.018) or np.any(widths>1.):continue
             positive_widths=widths[widths>.02]
             if len(positive_widths)<len(widths)*.75:continue
             # Perspective: the same lane becomes narrower toward the horizon.
             far_width=float(max(.02,np.percentile(positive_widths,20)))
             near_width=float(widths[-1])
             near_center=float((lx[-1]+rx[-1])/(2*w))
-            if not (.15<=near_width<=.64):continue
-            if not (.035<=far_width<=min(.48,near_width*.98)):continue
+            if not (.12<=near_width<=.76):continue
+            if not (.020<=far_width<=min(.55,near_width*.98)):continue
             if near_width < far_width*1.05:continue
             # The selected pair is the ego lane: it should contain the camera
             # projection near the bottom.  This rejects an adjacent lane made
@@ -251,8 +257,8 @@ def _pair(lefts,rights,h,w):
             # A dashcam can be mounted noticeably off-centre, so this remains
             # deliberately broad.  Pair ranking below, rather than a hard
             # centre cut-off, decides between a real edge and a bright rail.
-            if not (.24<=near_center<=.76):continue
-            if lx[-1] > w*.62 or rx[-1] < w*.38:continue
+            if not (.20<=near_center<=.80):continue
+            if lx[-1] > w*.68 or rx[-1] < w*.32:continue
             # A lane width must change smoothly.  Sudden widening is typical
             # of a track jumping from paint to a guardrail.
             if float(np.max(np.abs(np.diff(widths))))>.12:continue
@@ -264,19 +270,16 @@ def _pair(lefts,rights,h,w):
                          +.7*abs(far_width/max(near_width,.01)-.42))
             # Paint strength alone must not make a guardrail win; geometric
             # consistency is intentionally the dominant tie-breaker.
-            # The target pair is normally a dashed centre divider (left) and
-            # a solid shoulder/edge line (right).  This preference recreates
-            # the successful fourth example while still allowing solid-solid
-            # roads when no dashed divider is present.
+            # A dashed centre divider plus a solid shoulder is common, but
+            # line type is only a soft preference: double-yellow, dashed
+            # shoulder and all-solid roads are valid lane boundaries too.
             style_match=left.get('dashed_score',0.)*right.get('solid_score',0.)
             reversed_style=left.get('solid_score',0.)*right.get('dashed_score',0.)
             both_dashed=left.get('dashed_score',0.)*right.get('dashed_score',0.)
             if has_dashed_left and has_solid_right:
-                # When the image contains the desired dashed/solid structure,
-                # do not let a brighter outside solid edge win the pair.
-                style_bonus=145*style_match-65*reversed_style-38*both_dashed-34*(1-style_match)
+                style_bonus=38*style_match-10*reversed_style-6*both_dashed
             else:
-                style_bonus=48*style_match-20*reversed_style-14*both_dashed
+                style_bonus=16*style_match-5*reversed_style-3*both_dashed
             score=left['score']+right['score']+24*extent-190*shape_error+style_bonus
             picks.append((score,left,right))
     if picks:
@@ -298,10 +301,14 @@ def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None,c
     # Work at a fixed size for predictable step widths and speed; preserve aspect.
     tw=640;th=max(160,int(h*tw/w));im=cv2.resize(frame,(tw,th))
     road_value=float(np.median(cv2.cvtColor(im,cv2.COLOR_BGR2HSV)[int(th*.75):,:,2]))
+    # Parlak sahnede renk maskesi temiz sarı/beyaz boya izleri verir.  Yol
+    # yüzeyi koyulaştığında yerel karşıtlık maskesine geçerek gölgede kalan
+    # soluk çizgileri korur.  İkisini körlemesine birleştirmek, parlak
+    # görsellerde asfalt parlamasını kesik çizgi boşluğu gibi yorumlayabilir.
     raw=color_candidates(im) if road_value>107 else enhanced_paint_candidates(im)
     # Clear sky/forest and far-off guardrails outside the road-focused region.
     road=np.zeros((th,tw),np.uint8)
-    cv2.fillPoly(road,[np.array([[0,th-1],[int(tw*.23),int(th*.45)],[int(tw*.91),int(th*.45)],[tw-1,th-1]],np.int32)],255)
+    cv2.fillPoly(road,[np.array([[0,th-1],[int(tw*.17),int(th*.45)],[int(tw*.95),int(th*.45)],[tw-1,th-1]],np.int32)],255)
     raw=cv2.bitwise_and(raw,road)
     if probabilities is not None:
         prob=cv2.resize(probabilities,(tw,th))
@@ -316,15 +323,9 @@ def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None,c
         for item in rights:
             _apply_ai_style(item,prob,channel_layout,'right')
     left,right=_pair(lefts,rights,th,tw)
-    # The requested target is a dashed centre divider plus a continuous road
-    # edge.  Do not shade a reversed or dashed/dashed pair as a confident
-    # driving lane; retain the stronger single trace instead.
-    if left is not None and right is not None:
-        left_style,right_style=left.get('marking'),right.get('marking')
-        if left_style=='duz' and right_style=='kesik':
-            left,right=(left,None) if left['score']>=right['score'] else (None,right)
-        elif left_style=='kesik' and right_style=='kesik':
-            left,right=(left,None) if left['score']>=right['score'] else (None,right)
+    # Geometri doğrulanmışsa düz/düz, düz/kesik ve kesik/kesik çiftleri de
+    # geçerlidir.  Tür bilgisi, çizgiyi elemek için değil arayüzde belirtmek
+    # için kullanılır.
     output=frame.copy();overlay=np.zeros_like(frame)
     sx=w/tw;sy=h/th
     def bounds(item):

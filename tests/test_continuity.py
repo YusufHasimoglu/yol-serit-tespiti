@@ -35,6 +35,33 @@ def test_reconstructed_dashed_center_line_and_road_edge():
     assert out.marking_types == ('kesik','duz')
     assert out.offset_px is not None
 
+def test_yellow_dashed_center_line_and_yellow_edge_are_detected():
+    """Sarı kent içi işaretler beyaz boya ile aynı takip hattını kullanır."""
+    h,w=400,640
+    im=np.full((h,w,3),72,np.uint8)
+    yellow=(0,210,255)
+    for y in range(200,395,28):
+        x=int(305+(.72*(350-y)))
+        cv2.line(im,(x,y),(x,y+14),yellow,8)
+    cv2.line(im,(480,200),(635,399),yellow,8)
+    out=detect_continuous(im)
+    assert out.both_found
+    assert out.marking_types == ('kesik','duz')
+    assert out.offset_px is not None
+
+def test_solid_center_and_solid_edge_are_a_valid_pair():
+    """Çift sarı orta çizgi, türü yüzünden güvenli çift olarak atılmamalı."""
+    h,w=400,640
+    im=np.full((h,w,3),72,np.uint8)
+    yellow=(0,210,255)
+    cv2.line(im,(286,200),(246,399),yellow,8)
+    cv2.line(im,(302,200),(262,399),yellow,8)
+    cv2.line(im,(420,200),(585,399),(245,245,245),8)
+    out=detect_continuous(im)
+    assert out.both_found
+    assert out.marking_types == ('duz','duz')
+    assert out.offset_px is not None
+
 def test_pair_prefers_dashed_divider_and_solid_road_edge():
     """The desired pair is the same dashed/solid structure as example four."""
     h,w=400,640
