@@ -3,7 +3,9 @@ import numpy as np
 import pytest
 
 from lanevision.core import Detection
-from lanevision.feedback import area_mask_from_boundaries, confirmed_mask, save_confirmed_detection, style_sample_count
+from lanevision.feedback import (area_mask_from_boundaries, confirmed_mask,
+                                 render_reviewed_annotation, save_confirmed_detection,
+                                 style_sample_count)
 
 
 def _reviewed_detection(frame):
@@ -40,3 +42,14 @@ def test_area_mask_can_be_derived_or_drawn_manually():
     manual=area_mask_from_boundaries((128,220),manual_points=np.array([[70,115],[92,48],[128,48],[155,115]],np.int32))
     assert np.count_nonzero(derived)>100
     assert np.count_nonzero(manual)>100
+
+
+def test_review_preview_preserves_separate_dashed_strokes():
+    image=np.full((120,180,3),80,np.uint8)
+    mask=np.zeros((120,180),np.uint8)
+    cv2.line(mask,(70,104),(76,82),2,4)
+    cv2.line(mask,(80,65),(86,43),2,4)
+    preview=render_reviewed_annotation(image,mask)
+    assert preview.shape==image.shape
+    # The wide asphalt gap remains unpainted rather than being joined.
+    assert not np.any(np.all(preview[70,74:84] == (0,176,255),axis=1))

@@ -16,7 +16,7 @@ from PIL import Image, ImageTk
 
 from .core import Detection, LaneSettings
 from .engine import InferenceEngine, MODES
-from .feedback import save_confirmed_detection, style_sample_count
+from .feedback import render_reviewed_annotation, save_confirmed_detection, style_sample_count
 from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages, write_image
 from .scene import analyze_scene
 
@@ -626,8 +626,9 @@ class LaneApp(tk.Tk):
         ):
             return
         name=f"{self.current_file.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        source_path=self.current_file
         try:
-            subprocess.Popen([
+            process=subprocess.Popen([
                 sys.executable, str(APP_ROOT / "etiketle.py"), "--image", str(self.current_file),
                 "--name", name, "--outdir", str(APP_ROOT / "data" / "gercek"), "--style-aware",
             ], cwd=str(APP_ROOT))
@@ -636,6 +637,43 @@ class LaneApp(tk.Tk):
             return
         self._set_feedback_ready(False, "Etiketleme penceresinde doğru çizgileri işaretleyip S ile kaydedin.")
         self.status.set("Etiketleme penceresi açıldı. Kaydedilen özgün görsel yalnızca yerel eğitim verisine eklenir.")
+        self.after(250, lambda: self._wait_for_annotation(process, name, source_path))
+
+    def _wait_for_annotation(self, process, name: str, source_path: Path):
+        """Return a saved correction to the main view after the annotator closes."""
+        if process.poll() is None:
+            self.after(250, lambda: self._wait_for_annotation(process, name, source_path))
+            return
+        root=APP_ROOT / "data" / "gercek"
+        mask_path=root / "masks" / f"{name}_mask.png"
+        area_path=root / "areas" / f"{name}_area.png"
+        if not mask_path.is_file() or self.current_image is None or self.current_file != source_path:
+            if self.current_detection is not None:
+                self._set_feedback_ready(True, "Etiketleme kaydedilmedi. Sonucu yeniden değerlendirebilirsiniz.")
+            return
+        try:
+            line_mask=cv2.imdecode(np.fromfile(str(mask_path),dtype=np.uint8),cv2.IMREAD_UNCHANGED)
+            area_mask=cv2.imdecode(np.fromfile(str(area_path),dtype=np.uint8),cv2.IMREAD_UNCHANGED) if area_path.is_file() else None
+            preview=render_reviewed_annotation(self.current_image,line_mask,area_mask)
+        except Exception as exc:
+            messagebox.showerror("Düzeltme okunamadı", str(exc))
+            return
+        if self.current_detection is not None:
+            self.current_detection.stages["11 Kullanıcı düzeltmesi"] = preview
+            self.stage_combo.configure(values=list(self.current_detection.stages.keys()))
+            self.selected_stage.set("11 Kullanıcı düzeltmesi")
+        self.current_display=preview
+        self._render_preview()
+        left_type="DÜZ" if np.any(line_mask==1) else "KESİK"
+        right_type="DÜZ" if np.any(line_mask==3) else "KESİK"
+        self.metric_left.set(left_type+" • DOĞRULANDI")
+        self.metric_right.set(right_type+" • DOĞRULANDI")
+        self.metric_offset.set("ETİKETLENDİ")
+        self.metric_segments.set("MANUEL")
+        self.algorithm_method.set("Kullanıcı düzeltmesi · eğitime eklendi")
+        count=style_sample_count(root)
+        self._set_feedback_ready(False, f"Düzeltmeniz doğru kabul edildi ve eğitime eklendi ({count} etiketli fotoğraf).")
+        self.status.set("Kullanıcı düzeltmesi ekranda gösteriliyor; çizgi ve alan maskeleri yerelde kaydedildi.")
 
     def _on_close(self):
         if self.is_processing:

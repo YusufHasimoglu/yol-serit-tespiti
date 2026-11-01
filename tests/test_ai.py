@@ -8,6 +8,7 @@ from lanevision.core import Detection
 from lanevision.engine import InferenceEngine,_curves_keep_order
 from lanevision.training_data import synthetic_sample, tusimple_samples, bdd_style_samples, load_user_samples
 from lanevision.ai_model import build_model
+from etiketle import STYLE_CLASSES, _style_mask
 
 ROOT=Path(__file__).resolve().parent.parent
 
@@ -106,6 +107,14 @@ def test_style_aware_user_mask_loader_preserves_all_four_classes(tmp_path):
     _,labels=samples[0]
     assert labels.shape==(144,256,4)
     assert all(np.count_nonzero(labels[:,:,index])>0 for index in range(4))
+
+
+def test_annotation_mask_keeps_dashed_strokes_separate():
+    strokes={0:[[(60,130),(72,90)]],1:[[(84,130),(90,112)],[(96,88),(103,70)]],
+             2:[[(150,130),(134,70)]],3:[[]]}
+    mask=_style_mask((144,256),strokes,STYLE_CLASSES,4)
+    parts=cv2.connectedComponents((mask==2).astype(np.uint8))[0]-1
+    assert parts==2
 
 
 def test_crossing_fallback_curves_are_not_a_lane_pair():

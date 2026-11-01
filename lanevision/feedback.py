@@ -167,3 +167,29 @@ def style_sample_count(root: Path) -> int:
         if has_left and has_right:
             count += 1
     return count
+
+
+def render_reviewed_annotation(image: np.ndarray, line_mask: np.ndarray,
+                               area_mask: np.ndarray | None = None) -> np.ndarray:
+    """Render a user-drawn correction without connecting dashed components."""
+    if image is None or image.ndim != 3:
+        raise ValueError("Özgün BGR görüntü gerekli.")
+    if line_mask is None or line_mask.ndim != 2:
+        raise ValueError("Dört sınıflı çizgi maskesi gerekli.")
+    output = image.copy()
+    if area_mask is not None and area_mask.shape == line_mask.shape and np.any(area_mask):
+        tint = output.copy()
+        tint[area_mask > 0] = (70, 177, 105)
+        output = cv2.addWeighted(output, .70, tint, .30, 0)
+    colors = {1: (255, 223, 30), 2: (0, 176, 255),
+              3: (255, 80, 190), 4: (0, 235, 120)}
+    for code, color in colors.items():
+        pixels = (line_mask == code).astype(np.uint8) * 255
+        # Only dilate sideways: separate dashed strokes remain visibly apart.
+        pixels = cv2.dilate(pixels, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 3)))
+        output[pixels > 0] = color
+    h, w = output.shape[:2]
+    cv2.rectangle(output, (8, 7), (min(w - 5, 620), 47), (17, 29, 42), -1)
+    cv2.putText(output, "KULLANICI ONAYLI | EGITIME EKLENDI", (17, 34),
+                cv2.FONT_HERSHEY_SIMPLEX, .62, (241, 249, 255), 2, cv2.LINE_AA)
+    return output
