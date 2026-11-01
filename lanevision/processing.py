@@ -12,6 +12,7 @@ import numpy as np
 
 from .core import Detection, LaneSettings, settings_dict
 from .engine import InferenceEngine
+from .temporal_tracking import VideoLaneStabilizer
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".m4v"}
@@ -119,6 +120,7 @@ def process_video(source: str | Path, output: str | Path, settings: LaneSettings
         if not writer.isOpened():
             raise OSError("MP4 video yazıcısı başlatılamadı. Codec desteklerini kontrol edin.")
         detector = InferenceEngine(settings,mode=mode)
+        stabilizer = VideoLaneStabilizer(detector.settings)
         rows = []
         frames, n_both, n_left, n_right = 0, 0, 0, 0
         is_cancelled = False
@@ -127,7 +129,7 @@ def process_video(source: str | Path, output: str | Path, settings: LaneSettings
             if cancelled and cancelled():
                 is_cancelled = True
                 break
-            found = detector.detect(current, video=True)
+            found = stabilizer.update(current, detector.detect(current, video=True))
             writer.write(found.frame)
             frames += 1
             n_both += int(found.both_found)

@@ -11,6 +11,7 @@ from .core import Detection, LaneSettings
 from .anchored_tracking import ManualLaneAnchor
 from .engine import InferenceEngine
 from .raft_flow import RaftPointFlow
+from .temporal_tracking import VideoLaneStabilizer
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,8 @@ class LiveFrame:
     original: np.ndarray
     detection: Detection
     anchored: bool = False
+    stabilized: bool = False
+    stability_note: str | None = None
 
 
 class LiveVideoSession:
@@ -59,10 +62,13 @@ class LiveVideoSession:
         self.anchor: ManualLaneAnchor | None = None
         self.saved_anchors = dict(saved_anchors or {})
         self.deep_flow = RaftPointFlow()
+        self.stabilizer = VideoLaneStabilizer(self.settings)
 
     def set_manual_anchor(self, frame: np.ndarray, line_mask: np.ndarray) -> None:
         """Use a user-corrected frame as the active pair of lane boundaries."""
         self.anchor = ManualLaneAnchor(frame, line_mask, self.settings, deep_flow=self.deep_flow)
+        # Yeni kullanıcı çizimi eski yol geometrisini geçersiz kılar.
+        self.stabilizer.reset()
 
     def read_next(self) -> LiveFrame | None:
         """Bir sonraki kareyi tespitli olarak ver; video bittiyse ``None`` döndür."""
@@ -74,6 +80,7 @@ class LiveVideoSession:
             return None
         self.index += 1
         anchored = False
+        exact_anchor = False
         saved = self.saved_anchors.get(self.index)
         if saved is not None:
             # Video tekrar oynatıldığında tam kullanıcı düzeltmesinin yapıldığı
@@ -81,6 +88,7 @@ class LiveVideoSession:
             self.set_manual_anchor(original, saved[1])
             detection = self.anchor.current_detection(original, "Kaydedilmiş kullanıcı düzeltmesi")
             anchored = detection is not None
+            exact_anchor = anchored
         elif self.anchor is not None:
             detection = self.anchor.track(original)
             if detection is not None:
@@ -97,7 +105,18 @@ class LiveVideoSession:
                 anchored = True
         if not anchored:
             detection = self.detector.detect(original, video=True)
-        return LiveFrame(self.index, self.total, self.fps, original, detection, anchored)
+        if exact_anchor:
+            # Kullanıcının kaydettiği kare her zaman bire bir gösterilir;
+            # sonraki karelerde zamansal denetim devreye girer.
+            self.stabilizer.seed(detection, original)
+            note = "doğrulanmış başlangıç"
+            stabilized = False
+        else:
+            detection = self.stabilizer.update(original, detection)
+            note = getattr(detection, "temporal_status", self.stabilizer.last_status)
+            stabilized = self.stabilizer.active
+        return LiveFrame(self.index, self.total, self.fps, original, detection, anchored,
+                         stabilized, note)
 
     def close(self) -> None:
         if not self.closed:

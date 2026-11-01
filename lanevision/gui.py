@@ -1060,14 +1060,27 @@ class LaneApp(tk.Tk):
             self.selected_stage.set("08 Sonuc")
         self.current_display = packet.detection.stages.get(self.selected_stage.get(), packet.detection.frame)
         self._render_preview()
-        self._set_metrics(packet.detection, (time.perf_counter() - started) * 1000)
-        source = ("İlk kullanıcı çizimi optik olarak takip ediliyor."
-                  if packet.anchored else "Hatalıysa videoyu durdurup doğru çizgileri işaretleyin.")
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        self._set_metrics(packet.detection, elapsed_ms)
+        stability_note = packet.stability_note or ""
+        if packet.anchored:
+            source = "Doğrulanmış çizim izleniyor."
+        elif stability_note == "ani sıçrama engellendi":
+            source = "Ani çizgi ve alan sapması engellendi; son güvenilir geometri korunuyor."
+        elif stability_note == "ölçüm bekleniyor":
+            source = "Geçici ölçüm kaybında son güvenilir şerit çifti korunuyor."
+        elif stability_note == "yeni geometri onaylandı":
+            source = "Yeni yol geometrisi ardışık ölçümlerle doğrulandı."
+        elif packet.stabilized:
+            source = "Şerit geometrisi kareler arasında yumuşatılarak takip ediliyor."
+        else:
+            source = "Hatalıysa videoyu durdurup doğru çizgileri işaretleyin."
         self._set_feedback_ready(True, f"Canlı kare {packet.index}. {source}")
-        self.dashboard_fps.set(f"{packet.fps:.1f} FPS")
+        actual_fps = min(packet.fps, 1000.0 / max(elapsed_ms, 1.0))
+        self.dashboard_fps.set(f"{actual_fps:.1f} FPS")
         self.progress_percent.set(min(100, 100 * packet.index / packet.total) if packet.total else 0)
         self.progress_text.set(f"Canlı kare: {packet.index} / {packet.total if packet.total else '?'}")
-        delay = max(1, int(1000 / packet.fps))
+        delay = max(1, int(1000 / packet.fps - elapsed_ms))
         self.live_after_id = self.after(delay, self._next_live_frame)
 
     def _pause_live_video(self, message: str | None = None):
