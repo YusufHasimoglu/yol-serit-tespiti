@@ -11,6 +11,7 @@ __pycache__/
 /data/gercek/images/
 /data/gercek/masks/
 /data/gercek/*_review.png
+/data/gercek/feedback.jsonl
 # Downloaded public datasets, selected-image manifests and extracted video clips
 # are strictly local research inputs.  They must not be pushed to this repository.
 /data/external/

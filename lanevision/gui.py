@@ -16,6 +16,7 @@ from PIL import Image, ImageTk
 
 from .core import Detection, LaneSettings
 from .engine import InferenceEngine, MODES
+from .feedback import save_confirmed_detection, style_sample_count
 from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages, write_image
 from .scene import analyze_scene
 
@@ -59,6 +60,7 @@ class LaneApp(tk.Tk):
         self.mode_var = tk.StringVar(value=MODES["auto"])
         self.mode_keys = {label:key for key,label in MODES.items()}
         self.algorithm_method = tk.StringVar(value="Yöntem: henüz çalıştırılmadı")
+        self.feedback_status = tk.StringVar(value="Tespit sonrası sonucu doğru veya hatalı olarak işaretleyebilirsiniz.")
         self.status = tk.StringVar(value="Hazır. Örnek görüntüyle başlayabilir veya kendi dosyanızı açabilirsiniz.")
         self.metric_left = tk.StringVar(value="—")
         self.metric_right = tk.StringVar(value="—")
@@ -209,6 +211,29 @@ class LaneApp(tk.Tk):
                      font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(5, 0))
         tk.Label(main, textvariable=self.algorithm_method, bg=BG, fg=GOOD, anchor="w",
                  font=("Segoe UI", 10, "bold")).pack(fill="x", pady=(5,0))
+        feedback = tk.Frame(main, bg=SIDEBAR, padx=12, pady=8)
+        feedback.pack(fill="x", pady=(8, 0))
+        tk.Label(feedback, text="EĞİTİM GERİ BİLDİRİMİ", bg=SIDEBAR, fg=BLUE,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        tk.Label(feedback, textvariable=self.feedback_status, bg=SIDEBAR, fg=MUTED,
+                 font=("Segoe UI", 9), anchor="w", wraplength=900).pack(fill="x", pady=(2, 6))
+        feedback_actions = tk.Frame(feedback, bg=SIDEBAR)
+        feedback_actions.pack(anchor="w")
+        self.btn_feedback_ok = tk.Button(feedback_actions, text="✓ DOĞRU — EĞİTİME EKLE",
+                                         command=self._confirm_detection, state="disabled",
+                                         bg=GOOD, fg="#00172a", activebackground="#6df0d0", bd=0,
+                                         font=("Segoe UI", 9, "bold"), padx=12, pady=6, cursor="hand2")
+        self.btn_feedback_ok.pack(side="left", padx=(0, 7))
+        self.btn_feedback_fix = tk.Button(feedback_actions, text="✎ HATALI — DOĞRUSUNU ÇİZ",
+                                          command=self._review_incorrect, state="disabled",
+                                          bg=PANEL, fg=TEXT, activebackground="#294767", bd=0,
+                                          font=("Segoe UI", 9, "bold"), padx=12, pady=6, cursor="hand2")
+        self.btn_feedback_fix.pack(side="left")
+        self.btn_feedback_train = tk.Button(feedback_actions, text="ADAY MODELİ EĞİT",
+                                            command=self._train_feedback_model,
+                                            bg=BLUE, fg="#00172a", activebackground="#88dbff", bd=0,
+                                            font=("Segoe UI", 9, "bold"), padx=12, pady=6, cursor="hand2")
+        self.btn_feedback_train.pack(side="left", padx=(7, 0))
         self.progressbar = ttk.Progressbar(main, variable=self.progress_percent, maximum=100,
                                            style="Horizontal.TProgressbar")
         self.progressbar.pack(fill="x", pady=(10, 0))
@@ -348,6 +373,14 @@ class LaneApp(tk.Tk):
     def _clear_metrics(self):
         for v in (self.metric_left, self.metric_right, self.metric_offset, self.metric_segments):
             v.set("—")
+        self._set_feedback_ready(False, "Özgün fotoğrafın tespitinden sonra sonucu doğru veya hatalı olarak işaretleyebilirsiniz.")
+
+    def _set_feedback_ready(self, ready, message=None):
+        state = "normal" if ready else "disabled"
+        self.btn_feedback_ok.configure(state=state)
+        self.btn_feedback_fix.configure(state=state)
+        if message is not None:
+            self.feedback_status.set(message)
 
     def _render_preview(self):
         if self.current_display is None:
@@ -418,6 +451,7 @@ class LaneApp(tk.Tk):
             self.current_display = detection.frame
             self._render_preview()
             self._set_metrics(detection)
+            self._set_feedback_ready(True, "Sonucu kontrol edin: doğruysa eğitime ekleyin, hatalıysa doğru çizgileri çizin.")
             self.progress_percent.set(100)
             self.progress_text.set("Görüntü analizi tamamlandı")
             self.status.set("Tespit tamamlandı. Çıktıyı ve ara adımları kaydedebilirsiniz.")
@@ -530,7 +564,54 @@ class LaneApp(tk.Tk):
             except Exception as exc:
                 messagebox.showerror("Kaydetme hatası", str(exc))
 
+    def _confirm_detection(self):
+        """Save only a user-validated, complete and typed result as training data."""
+        if self.current_image is None or self.current_detection is None or self.current_file is None:
+            messagebox.showinfo("Tespit yok", "Önce özgün bir fotoğrafta şerit tespiti yapın.")
+            return
+        try:
+            sample = save_confirmed_detection(
+                self.current_image, self.current_detection, APP_ROOT / "data" / "gercek", self.current_file.name)
+        except ValueError as exc:
+            messagebox.showinfo("Elle düzeltme gerekli", str(exc))
+            self._review_incorrect()
+            return
+        count = style_sample_count(APP_ROOT / "data" / "gercek")
+        self._set_feedback_ready(False, f"Onaylı örnek kaydedildi ({count} etiketli fotoğraf). "
+                                  "Hatalı örneklerde 'doğrusunu çiz' seçeneğini kullanın.")
+        self.status.set(f"Onaylı eğitim örneği yerelde kaydedildi: {sample['image'].name}")
+
+    def _review_incorrect(self):
+        self._launch_labeler(correction=True)
+
+    def _train_feedback_model(self):
+        """Train a local candidate; never overwrite the current model silently."""
+        count=style_sample_count(APP_ROOT / "data" / "gercek")
+        if count<24:
+            messagebox.showinfo("Daha fazla etiket gerekli",
+                                f"Aday eğitim için en az 24 doğru etiketli fotoğraf önerilir. Şu anda: {count}.")
+            return
+        if not messagebox.askyesno(
+            "Aday modeli eğit",
+            f"{count} yerel etiketle aday model eğitilecek. Bu işlem sürebilir ve mevcut modeli değiştirmez. Devam edilsin mi?"
+        ):
+            return
+        candidate=APP_ROOT / "modeller" / "serit_unet_geri_bildirim_candidate.pt"
+        try:
+            subprocess.Popen([
+                sys.executable, str(APP_ROOT / "egit.py"), "--style-aware", "--synthetic", "240",
+                "--epochs", "15", "--batch", "4", "--out", str(candidate),
+            ], cwd=str(APP_ROOT))
+        except OSError as exc:
+            messagebox.showerror("Eğitim başlatılamadı", str(exc))
+            return
+        self.feedback_status.set("Aday model eğitimi arka planda başladı. Mevcut model korunuyor; aday önce test edilmelidir.")
+        self.status.set("Geri bildirim aday modeli eğitiliyor. Uygulama kullanılmaya devam edebilir.")
+
     def _label_current_image(self):
+        self._launch_labeler(correction=False)
+
+    def _launch_labeler(self, correction: bool):
         """Özgün fotoğraf için dört sınıflı etiketleme penceresini aç."""
         if self.current_file is None or self.current_image is None:
             messagebox.showinfo("Fotoğraf seçin", "Önce etiketlemek istediğiniz özgün yol fotoğrafını açın.")
@@ -538,7 +619,7 @@ class LaneApp(tk.Tk):
         if self.current_file.suffix.lower() in VIDEO_EXTENSIONS:
             messagebox.showinfo("Video karesi", "Videodan önce bir kareyi görsel olarak kaydedip sonra o görseli açın.")
             return
-        if not messagebox.askyesno(
+        if not correction and not messagebox.askyesno(
             "Eğitim etiketi",
             "Açılan pencerede 1=sol düz, 2=sol kesik, 3=sağ düz, 4=sağ kesik seçilir.\n"
             "Her çizgi için en az iki nokta koyun. Özgün görsel yalnızca yerel eğitim klasörüne kaydedilecek."
@@ -553,6 +634,7 @@ class LaneApp(tk.Tk):
         except OSError as exc:
             messagebox.showerror("Etiketleme açılamadı", str(exc))
             return
+        self._set_feedback_ready(False, "Etiketleme penceresinde doğru çizgileri işaretleyip S ile kaydedin.")
         self.status.set("Etiketleme penceresi açıldı. Kaydedilen özgün görsel yalnızca yerel eğitim verisine eklenir.")
 
     def _on_close(self):
