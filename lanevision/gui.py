@@ -251,7 +251,7 @@ class LaneApp(tk.Tk):
         work = tk.Frame(content, bg=BG)
         work.pack(side="left", fill="both", expand=True)
 
-        source_card = tk.Frame(work, bg=PANEL, padx=15, pady=11, highlightbackground=BORDER, highlightthickness=1)
+        source_card = tk.Frame(work, bg=PANEL, padx=15, pady=8, highlightbackground=BORDER, highlightthickness=1)
         source_card.pack(fill="x", pady=(0, 12))
         source_head = tk.Frame(source_card, bg=PANEL)
         source_head.pack(fill="x")
@@ -260,7 +260,7 @@ class LaneApp(tk.Tk):
         tk.Label(source_head, textvariable=self.source_name, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), anchor="e").pack(side="right")
         source_row = tk.Frame(source_card, bg=PANEL)
-        source_row.pack(fill="x", pady=(9, 4))
+        source_row.pack(fill="x", pady=(6, 2))
         self._button(source_row, "GÖRÜNTÜ AÇ", self._select_image, primary=True, compact=True,
                      pack=False).pack(side="left", padx=(0, 7))
         self._button(source_row, "VİDEO AÇ", self._select_video, compact=True,
@@ -286,14 +286,8 @@ class LaneApp(tk.Tk):
             if index:
                 tk.Frame(self.advanced_frame, bg=BORDER, height=1).pack(fill="x", pady=2)
             self._slider(self.advanced_frame, label, key, low, high)
-        profile = tk.Frame(source_card, bg=PANEL)
-        profile.pack(fill="x", pady=(7, 0))
-        self._scene_chip(profile, self.scene_lighting, GOOD)
-        self._scene_chip(profile, self.scene_geometry, BLUE)
-        tk.Label(profile, textvariable=self.scene_brightness, bg=PANEL, fg=MUTED,
-                 font=("Segoe UI", 8), anchor="e").pack(side="right", fill="x", expand=True)
         video_bar = tk.Frame(source_card, bg=PANEL)
-        video_bar.pack(fill="x", pady=(4, 0))
+        video_bar.pack(fill="x", pady=(2, 0))
         tk.Label(video_bar, textvariable=self.video_frame_text, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 8)).pack(side="left")
         self.video_seek = tk.Scale(video_bar, from_=0, to=1, orient="horizontal", showvalue=False,
@@ -412,12 +406,14 @@ class LaneApp(tk.Tk):
                         "Tespit modelinin destek skoru", GOOD, large=True)
         self._rail_card(rail, "╱╲", "Şerit Merkezi Sapması", self.metric_offset,
                         "Görüntü merkezine göre", BLUE, large=True)
-        self._rail_card(rail, "⌁", "Video Akışı", self.dashboard_fps,
-                        "Canlı takip durumu", BLUE, large=True)
-        self._rail_card(rail, "⌛", "Analiz Gecikmesi", self.dashboard_latency,
-                        "Son ölçülen çıkarım süresi", GOOD, large=True)
-        self._rail_card(rail, "⌁", "Merkez Kararlılığı", self.dashboard_stability,
-                        "Son ölçümlerin yayılımı", GOOD, large=True)
+        rail_grid = tk.Frame(rail, bg=BG)
+        rail_grid.pack(fill="x", pady=(0, 7))
+        for column in range(2):
+            rail_grid.grid_columnconfigure(column, weight=1)
+        self._rail_mini_card(rail_grid, "⌁", "Video Akışı", self.dashboard_fps, BLUE, 0, 0, padx=(0, 4))
+        self._rail_mini_card(rail_grid, "⌛", "Gecikme", self.dashboard_latency, GOOD, 0, 1, padx=(4, 0))
+        self._rail_mini_card(rail_grid, "⌁", "Kararlılık", self.dashboard_stability, GOOD, 1, 0, padx=(0, 4), pady=(7, 0))
+        self._rail_mini_card(rail_grid, "╱╲", "Yol Eğriliği", self.dashboard_curve, WARM, 1, 1, padx=(4, 0), pady=(7, 0))
         alert = tk.Frame(rail, bg=PANEL, padx=14, pady=13, highlightbackground=BORDER, highlightthickness=1)
         alert.pack(fill="x", pady=(0, 10))
         tk.Label(alert, text="⚠  Uyarılar", bg=PANEL, fg=WARM,
@@ -486,6 +482,15 @@ class LaneApp(tk.Tk):
         tk.Label(card, textvariable=value, bg=PANEL, fg=accent if large else TEXT,
                  font=("Segoe UI", 17 if large else 13, "bold"), anchor="w").pack(fill="x", pady=(4, 1))
         tk.Label(card, text=subtitle, bg=PANEL, fg=MUTED, font=("Segoe UI", 8), anchor="w").pack(fill="x")
+        return card
+
+    def _rail_mini_card(self, parent, icon, title, value, accent, row, column, padx=0, pady=0):
+        card = tk.Frame(parent, bg=PANEL, padx=9, pady=7, highlightbackground=BORDER, highlightthickness=1)
+        card.grid(row=row, column=column, sticky="nsew", padx=padx, pady=pady)
+        tk.Label(card, text=f"{icon}  {title}", bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x")
+        tk.Label(card, textvariable=value, bg=PANEL, fg=accent,
+                 font=("Segoe UI", 13, "bold"), anchor="w").pack(fill="x", pady=(3, 0))
         return card
 
     def _stage_tab(self, parent, label, stage):
@@ -607,13 +612,13 @@ class LaneApp(tk.Tk):
             self.scene_lighting.set("☾  "+p.short_lighting if p.lighting=='gece' else "☀  "+p.short_lighting)
             self.scene_geometry.set("↝  "+p.short_geometry)
             self.scene_brightness.set(f"Işık endeksi {p.brightness:.0f}/255  ·  Viraj işareti: {p.curve_score:.1f}")
-            self.dashboard_curve.set(f"Yol: {p.short_geometry} · {p.curve_score:.1f}")
+            self.dashboard_curve.set(f"{p.short_geometry} · {p.curve_score:.1f}")
         except Exception:
             self.scene_profile=None
             self.scene_lighting.set("IŞIK: BELİRSİZ")
             self.scene_geometry.set("YOL: BELİRSİZ")
             self.scene_brightness.set("Yeterli görsel veri bulunamadı")
-            self.dashboard_curve.set("Yol: belirsiz")
+            self.dashboard_curve.set("Belirsiz")
 
     def _subhead(self, parent, text):
         background = parent.cget("bg")
@@ -912,7 +917,7 @@ class LaneApp(tk.Tk):
             self.scene_lighting.set(("☾  " if profile.lighting=='gece' else "☀  ")+profile.short_lighting)
             self.scene_geometry.set("↝  "+profile.short_geometry)
             self.scene_brightness.set(f"Işık endeksi {profile.brightness:.0f}/255  ·  Viraj işareti: {profile.curve_score:.1f}")
-            self.dashboard_curve.set(f"Yol: {profile.short_geometry} · {profile.curve_score:.1f}")
+            self.dashboard_curve.set(f"{profile.short_geometry} · {profile.curve_score:.1f}")
 
     def _detect(self):
         if self.is_processing:
