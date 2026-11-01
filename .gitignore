@@ -22,5 +22,8 @@ __pycache__/
 /modeller/*candidate.pt
 /modeller/*aday.pt
 /modeller/*yedek.pt
+# UFLD V2'nin 367 MB ONNX ağırlığı kullanıcının bilgisayarında kalır; kaynak
+# kodu ve indirme bilgisi depoda bulunur, model dosyası GitHub'a yüklenmez.
+/modeller/ufldv2_lane_detection.onnx
 /sonuclar/
 /output/

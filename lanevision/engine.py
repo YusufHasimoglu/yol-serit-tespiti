@@ -7,8 +7,10 @@ from .core import LaneDetector,LaneSettings,Detection
 from .hybrid import detect_hybrid
 from .scene import analyze_scene
 from .continuity import detect_continuous
+from .ufld import UFLDDetector
 
 MODES={'auto':'Akıllı otomatik (gece / viraj / AI)', 'ai':'Yapay zekâ (U-Net)',
+       'ufld':'Yapay zekâ (UFLD V2 derin şerit)',
        'hybrid':'Gelişmiş eğrisel takip', 'continuity':'Kesikli ve sürekli şerit takibi', 'classic':'Klasik Canny + Hough'}
 
 
@@ -194,7 +196,14 @@ class InferenceEngine:
         self.mode=mode
         self.classic=LaneDetector(self.settings)
         self.segmenter=None
+        self.ufld=None
         self.model_warning=None
+        if mode=='ufld':
+            try:
+                self.ufld=UFLDDetector()
+            except (FileNotFoundError,RuntimeError) as exc:
+                self.model_warning=str(exc)
+                raise RuntimeError('UFLD V2 şerit modeli yüklenemedi: '+str(exc)) from exc
         if mode in {'auto','ai'}:
             try:
                 from .ai_model import AISegmenter,DEFAULT_WEIGHTS
@@ -219,6 +228,8 @@ class InferenceEngine:
             result=detect_hybrid(frame,self.settings)
             result.method='Eğrisel renk takibi'
             return attach(result)
+        if self.mode=='ufld':
+            return attach(self.ufld.detect(frame,self.settings))
 
         ai=None
         if self.segmenter is not None:

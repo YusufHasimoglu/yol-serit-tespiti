@@ -9,7 +9,7 @@ Python/OpenCV ve PyTorch ile geliştirilmiş Türkçe arayüzlü, araştırma am
 - Fotoğraf ve video açma, sonucu ve ara adımları kaydetme.
 - Gündüz, gece, alacakaranlık ve viraj profili için **görüntüden tahmini sahne analizi**.
 - Sol/sağ sürüş şeridi sınırlarına odaklanan **kesikli ve sürekli çizgi takibi**, eksik kesikli boyanın olası devamını farklı gösterme.
-- Düz/kesik ayrımlı dört kanallı U-Net segmentasyon, eğrisel renk takibi, klasik Canny–Hough ve otomatik seçim.
+- Düz/kesik ayrımlı dört kanallı U-Net segmentasyon, UFLD V2 derin şerit algılama, eğrisel renk takibi, klasik Canny–Hough ve otomatik seçim.
 - Eğitim, etiketleme, değerlendirme, sentetik veri üretimi ve testler.
 - Haftalık GitHub Actions araştırma eğitim işi; aday ağırlıklar otomatik olarak ana modelin yerine geçirilmez.
 
@@ -50,3 +50,21 @@ python etiketle.py --help
 Gerçek görüntülerle eğitim için uygulamadaki **EĞİTİM İÇİN ETİKETLE** düğmesini kullanın. Özgün fotoğraf yerelde `data/gercek/images/`, düz/kesik sınıflı maske ise `data/gercek/masks/` klasörüne kaydedilir. GitHub'a fotoğrafların veya üçüncü taraf veri kümelerinin ham kopyaları **konulmaz**. `hazirla_bdd100.py`, resmî BDD100K etiketlerinden düz/kesik sınıfları bulunan 100 farklı video ana karesini yerelde seçer; `egit.py --bdd-root ... --bdd-json ... --bdd-manifest ...` bu karelerle dört kanallı modeli eğitir. Ayrıntılar için eğitim rehberine bakın.
 
 Ayrıntılar: [Kullanım ve arayüz](docs/KULLANIM.md) · [Gerçek veri deneyi](docs/GERCEK_VERI_DENEYI.md) · [AI eğitim rehberi](docs/AI_EGITIM_REHBERI.md) · [Deney planı](docs/DENEY_PLANI.md).
+
+## UFLD V2 derin şerit modeli
+
+Uygulamadaki **“Yapay zekâ (UFLD V2 derin şerit)”** seçeneği, UFLD V2'nin
+satır-çapa temelli şerit algılayıcısını OpenCV ile yerelde çalıştırır. Eğrisel
+ve kesikli çizgilerde klasik çizgi buluculara göre daha dayanıklı bir ikinci
+yöntem sağlar. Modelin kendisi büyük olduğundan GitHub deposuna eklenmez;
+uygulamanın `modeller/ufldv2_lane_detection.onnx` yolunda yerelde bulunur.
+Bu model çizgi türünü (düz/kesik) söylemez; tür etiketi için kullanıcı
+çizimleri ve dört kanallı U-Net kullanılmaya devam eder.
+
+Model henüz yoksa, proje klasöründe aşağıdaki komutu bir kez çalıştırın:
+
+```bash
+python indir_ufld_v2.py
+```
+
+İndirme yaklaşık 368 MB'tır ve yalnızca kendi bilgisayarınıza kaydedilir.

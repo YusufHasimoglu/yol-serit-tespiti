@@ -20,6 +20,7 @@ from .feedback import (find_saved_review, render_reviewed_annotation,
                        save_confirmed_detection, style_sample_count)
 from .live_video import LiveVideoSession
 from .video_feedback import load_video_anchors, save_video_anchor
+from .ufld import DEFAULT_UFLD_WEIGHTS
 from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages, write_image
 from .scene import analyze_scene
 
@@ -101,10 +102,13 @@ class LaneApp(tk.Tk):
     def _check_ai_ready(self):
         import importlib.util
         from .ai_model import DEFAULT_WEIGHTS
+        ufld_ready=DEFAULT_UFLD_WEIGHTS.is_file()
         if importlib.util.find_spec("torch") is None:
-            self.ai_status_var.set("●  AI PASİF: PyTorch yüklü değil")
+            self.ai_status_var.set("●  AI: UFLD V2 hazır" if ufld_ready else "●  AI PASİF: PyTorch ve UFLD modeli bulunamadı")
         elif not DEFAULT_WEIGHTS.is_file():
-            self.ai_status_var.set("●  AI PASİF: model ağırlığı bulunamadı")
+            self.ai_status_var.set("●  AI: UFLD V2 hazır · U-Net ağırlığı yok" if ufld_ready else "●  AI PASİF: model ağırlığı bulunamadı")
+        elif ufld_ready:
+            self.ai_status_var.set("●  AI HAZIR: U-Net + UFLD V2")
         else:
             self.ai_status_var.set("●  AI HAZIR: U-Net ağırlıkları mevcut")
 
