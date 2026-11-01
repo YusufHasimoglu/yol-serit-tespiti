@@ -1,0 +1,17 @@
+ŞERİT GÖRÜ — HIZLI BAŞLANGIÇ
+
+1) Python 3.10+ kurun (kurulumda Add Python to PATH).
+2) Windows kullanıyorsanız baslat_windows.bat dosyasını açın.
+3) Açılan uygulamada ÖRNEK GÖRÜNTÜYÜ AÇ seçin.
+4) ŞERİTLERİ TESPİT ET düğmesine tıklayın.
+5) Sonucu ve işlem adımlarını kaydedin.
+6) Video için VİDEO AÇ -> ŞERİTLERİ TESPİT ET -> MP4 çıktı konumu seçin.
+
+VS Code terminalinde elle çalıştırma:
+  python -m pip install -r requirements.txt
+  python app.py
+
+Ayrıntılı açıklamalar: README.md
+Düzenlenebilir akademik rapor: docs/PROJE_RAPORU_TASLAGI.md
+
+UYARI: Örnek yollar sentetiktir. Bu araç gerçek sürüş için uygun değildir.
