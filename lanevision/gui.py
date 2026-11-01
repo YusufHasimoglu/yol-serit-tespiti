@@ -189,7 +189,7 @@ class LaneApp(tk.Tk):
                      state="readonly", width=34).pack(fill="x", pady=(3,10))
         tk.Label(controls,text="Otomatik seçim, ışık ve yol şeklini değerlendirir.",
                  bg=SIDEBAR,fg=MUTED,font=("Segoe UI",8),wraplength=295,
-                 justify="left").pack(anchor="w",pady=(-6,8))
+                 justify="left").pack(anchor="w",pady=(0,8))
         tk.Label(controls,textvariable=self.ai_status_var,bg=SIDEBAR,
                  fg=GOOD,font=("Segoe UI",9),wraplength=295).pack(anchor="w",pady=(0,8))
         self.advanced_btn=self._button(controls,"⚙  GELİŞMİŞ PARAMETRELERİ GÖSTER",self._toggle_advanced)
