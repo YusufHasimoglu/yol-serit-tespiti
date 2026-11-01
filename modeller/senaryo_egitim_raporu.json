@@ -1,0 +1,92 @@
+{
+  "timestamp": "2026-11-01T07:31:21.065340+00:00",
+  "kind": "sentetik-senaryo-deneyi",
+  "training_scenarios": {
+    "duz_gunduz": 60,
+    "viraj_gunduz": 60,
+    "duz_gece": 60,
+    "viraj_gece": 60,
+    "yagmurlu_gece": 60
+  },
+  "real_train_images": 1,
+  "val_scenarios": {
+    "duz_gunduz": 14,
+    "viraj_gunduz": 14,
+    "duz_gece": 14,
+    "viraj_gece": 14,
+    "yagmurlu_gece": 14
+  },
+  "baseline": {
+    "duz_gunduz": 0.325,
+    "viraj_gunduz": 0.3015,
+    "duz_gece": 0.5905,
+    "viraj_gece": 0.4419,
+    "yagmurlu_gece": 0.5323
+  },
+  "baseline_macro_iou": 0.4382,
+  "best": {
+    "duz_gunduz": 0.7248,
+    "viraj_gunduz": 0.6364,
+    "duz_gece": 0.7584,
+    "viraj_gece": 0.6673,
+    "yagmurlu_gece": 0.7363
+  },
+  "best_macro_iou": 0.7046,
+  "gain": 0.2664,
+  "no_scenario_large_regression": true,
+  "accepted": true,
+  "promoted": true,
+  "candidate_path": "modeller/senaryo_aday.pt",
+  "weights_path": "/mnt/data/serit_goru_ai_v2/Serit_Goru_Proje/modeller/serit_unet_demo.pt",
+  "history": [
+    {
+      "epoch": 1,
+      "loss": 1.316,
+      "macro_iou": 0.5633,
+      "by_scenario": {
+        "duz_gunduz": 0.57,
+        "viraj_gunduz": 0.4985,
+        "duz_gece": 0.6222,
+        "viraj_gece": 0.5297,
+        "yagmurlu_gece": 0.5963
+      }
+    },
+    {
+      "epoch": 2,
+      "loss": 1.2865,
+      "macro_iou": 0.604,
+      "by_scenario": {
+        "duz_gunduz": 0.6254,
+        "viraj_gunduz": 0.5179,
+        "duz_gece": 0.65,
+        "viraj_gece": 0.5821,
+        "yagmurlu_gece": 0.6444
+      }
+    },
+    {
+      "epoch": 3,
+      "loss": 1.2613,
+      "macro_iou": 0.6605,
+      "by_scenario": {
+        "duz_gunduz": 0.6653,
+        "viraj_gunduz": 0.6166,
+        "duz_gece": 0.6862,
+        "viraj_gece": 0.6385,
+        "yagmurlu_gece": 0.6961
+      }
+    },
+    {
+      "epoch": 4,
+      "loss": 1.239,
+      "macro_iou": 0.7046,
+      "by_scenario": {
+        "duz_gunduz": 0.7248,
+        "viraj_gunduz": 0.6364,
+        "duz_gece": 0.7584,
+        "viraj_gece": 0.6673,
+        "yagmurlu_gece": 0.7363
+      }
+    }
+  ],
+  "disclaimer": "IoU yalnızca sabit sentetik senaryo doğrulaması için geçerlidir; gerçek yol testi değildir."
+}

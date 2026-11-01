@@ -59,6 +59,7 @@ class Detection:
     confidence: float
     segment_count: int
     method: str = "Klasik Hough"
+    scene_profile: object = None
 
     @property
     def both_found(self) -> bool:
@@ -73,6 +74,9 @@ class Detection:
             "gorsel_destek_skoru": round(self.confidence, 3),
             "hough_segment_sayisi": self.segment_count,
             "yontem": self.method,
+            "sahne_isik": getattr(self.scene_profile, "lighting", "bilinmiyor"),
+            "sahne_yol": getattr(self.scene_profile, "geometry", "belirsiz"),
+            "sahne_isik_endeksi": getattr(self.scene_profile, "brightness", None),
         }
 
 

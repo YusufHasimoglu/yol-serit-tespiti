@@ -1,0 +1,50 @@
+name: Weekly lane-model research training
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Sunday 04:10 UTC. GitHub scheduled runs are best effort.
+    - cron: '10 4 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  train-and-evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+      - name: Python setup
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install CPU-only PyTorch
+        run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install project and test dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Run automated tests
+        run: python -m pytest -q
+      - name: Continue training (candidate only)
+        run: |
+          python egit_senaryo.py \
+            --samples-per-scenario 50 \
+            --validation-per-scenario 14 \
+            --epochs 3 \
+            --batch 12 \
+            --seed "${{ github.run_number }}" \
+            --candidate modeller/weekly_candidate.pt \
+            --report modeller/weekly_report.json
+      - name: Upload research candidate, metrics and run logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-ai-candidate-${{ github.run_number }}
+          path: |
+            modeller/weekly_candidate.pt
+            modeller/weekly_report.json
+          retention-days: 21
+
+# Intentionally does not commit weights or deploy. A human must review the
+# synthetic-scenario result and then independently test a real-world holdout.

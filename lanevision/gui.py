@@ -14,23 +14,25 @@ from PIL import Image, ImageTk
 from .core import Detection, LaneSettings
 from .engine import InferenceEngine, MODES
 from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages, write_image
+from .scene import analyze_scene
 
 APP_ROOT = Path(__file__).resolve().parent.parent
-BG = "#0b1425"
-SIDEBAR = "#131f33"
-PANEL = "#182840"
-BLUE = "#35b5ff"
-TEXT = "#e9f1ff"
-MUTED = "#a7bbd3"
-GOOD = "#2ed8a1"
+BG = "#070F1D"
+SIDEBAR = "#111F32"
+PANEL = "#182C45"
+BLUE = "#4CAEF8"
+TEXT = "#F0F6FF"
+MUTED = "#9EADC4"
+GOOD = "#2DE2BA"
+BORDER = "#253C57"
 
 
 class LaneApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("ŞERİT GÖRÜ  |  Yol Çizgisi Tespit Sistemi")
-        self.geometry("1190x765")
-        self.minsize(950, 650)
+        self.title("ŞERİT GÖRÜ PRO  |  Akıllı Yol ve Şerit Analizi")
+        self.geometry("1390x860")
+        self.minsize(1050, 690)
         self.configure(bg=BG)
         self.current_file: Path | None = None
         self.current_image: np.ndarray | None = None
@@ -60,13 +62,31 @@ class LaneApp(tk.Tk):
         self.metric_offset = tk.StringVar(value="—")
         self.metric_segments = tk.StringVar(value="—")
         self.source_name = tk.StringVar(value="Dosya seçilmedi")
+        self.scene_lighting = tk.StringVar(value="IŞIK: BEKLENİYOR")
+        self.scene_geometry = tk.StringVar(value="YOL: BEKLENİYOR")
+        self.scene_brightness = tk.StringVar(value="Görsel analizi bekleniyor")
+        self.scene_profile = None
+        self.ai_status_var = tk.StringVar(value="AI modeli kontrol ediliyor")
+        self.auto_detect_var = tk.BooleanVar(value=True)
+        self.advanced_visible = False
         self.progress_percent = tk.DoubleVar(value=0)
         self.progress_text = tk.StringVar(value="İşlem bekleniyor")
         self._configure_styles()
+        self._check_ai_ready()
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._process_messages)
         self.after(200, lambda: self._load_example_if_exists(force=False))
+
+    def _check_ai_ready(self):
+        import importlib.util
+        from .ai_model import DEFAULT_WEIGHTS
+        if importlib.util.find_spec("torch") is None:
+            self.ai_status_var.set("●  AI PASİF: PyTorch yüklü değil")
+        elif not DEFAULT_WEIGHTS.is_file():
+            self.ai_status_var.set("●  AI PASİF: model ağırlığı bulunamadı")
+        else:
+            self.ai_status_var.set("●  AI HAZIR: U-Net ağırlıkları mevcut")
 
     def _configure_styles(self):
         style = ttk.Style(self)
@@ -76,17 +96,23 @@ class LaneApp(tk.Tk):
 
     def _build_ui(self):
         header = tk.Frame(self, bg=BG)
-        header.pack(fill="x", padx=25, pady=(18, 10))
-        tk.Label(header, text="ŞERİT GÖRÜ", bg=BG, fg=BLUE, font=("Segoe UI", 24, "bold")).pack(side="left")
-        tk.Label(header, text="  /  Yol Görüntülerinden Şerit Tespiti", bg=BG, fg=MUTED,
-                 font=("Segoe UI", 13)).pack(side="left", pady=(8, 0))
-        tk.Label(header, text="OpenCV + Eğrisel Takip + U-Net", bg=BG, fg=GOOD,
-                 font=("Segoe UI", 10, "bold")).pack(side="right", pady=(10, 0))
+        header.pack(fill="x", padx=26, pady=(19, 16))
+        brand = tk.Frame(header, bg=BG)
+        brand.pack(side="left")
+        tk.Label(brand,text="◈",bg=BG,fg=GOOD,font=("Segoe UI Symbol",28,"bold")).pack(side="left",padx=(0,10))
+        namebox=tk.Frame(brand,bg=BG)
+        namebox.pack(side="left")
+        tk.Label(namebox, text="ŞERİT GÖRÜ", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 23, "bold")).pack(anchor="w")
+        tk.Label(namebox,text="AKILLI YOL GÖRÜNTÜSÜ ANALİZ PLATFORMU",bg=BG,fg=MUTED,
+                 font=("Segoe UI",9,"bold")).pack(anchor="w")
+        tk.Label(header,text="●  AI V3  /  SAHNE FARKINDALIĞI",bg=SIDEBAR,fg=GOOD,
+                 font=("Segoe UI",10,"bold"),padx=17,pady=10).pack(side="right",pady=8)
 
         container = tk.Frame(self, bg=BG)
         container.pack(fill="both", expand=True, padx=24, pady=(0, 10))
         # Dar ekranlarda son düğmelerin kaybolmaması için kaydırılabilir sol panel.
-        sidebar_holder = tk.Frame(container, bg=SIDEBAR, width=315)
+        sidebar_holder = tk.Frame(container, bg=SIDEBAR, width=330)
         sidebar_holder.pack(side="left", fill="y", padx=(0, 15))
         sidebar_holder.pack_propagate(False)
         scroller = tk.Canvas(sidebar_holder, bg=SIDEBAR, highlightthickness=0, borderwidth=0)
@@ -108,30 +134,48 @@ class LaneApp(tk.Tk):
         tk.Label(controls, textvariable=self.source_name, bg=SIDEBAR, fg=MUTED, wraplength=277,
                  justify="left", font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 12))
 
-        self._subhead(controls, "02 / ALGORİTMA AYARLARI")
+        self._subhead(controls, "02 / AKILLI ANALİZ")
+        tk.Checkbutton(controls,text="Görsel açıldığında otomatik analiz et",variable=self.auto_detect_var,
+                       bg=SIDEBAR,fg=TEXT,selectcolor=PANEL,activebackground=SIDEBAR,
+                       activeforeground=TEXT,font=("Segoe UI",9)).pack(anchor="w",pady=(0,10))
+        self._subhead(controls, "03 / TESPİT AYARLARI")
         tk.Label(controls, text="Tespit yöntemi", bg=SIDEBAR, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w")
         ttk.Combobox(controls, textvariable=self.mode_var, values=list(MODES.values()),
                      state="readonly", width=34).pack(fill="x", pady=(3,10))
-        tk.Label(controls, text="AI modu: pip install -r requirements-ai.txt", bg=SIDEBAR,
-                 fg=MUTED, font=("Segoe UI", 8), wraplength=270).pack(anchor="w", pady=(0,8))
-        self._slider(controls, "Canny alt eşik", "canny_low", 0, 220)
-        self._slider(controls, "Canny üst eşik", "canny_high", 1, 255)
-        self._slider(controls, "ROI başlangıcı (%)", "roi_top", 35, 80)
-        self._slider(controls, "Hough eşik", "hough_threshold", 5, 90)
-        self._slider(controls, "En küçük çizgi (px)", "min_line_length", 10, 140)
-        self._slider(controls, "Birleştirme aralığı", "max_line_gap", 5, 120)
-        self._slider(controls, "Video yumuşatma (%)", "smoothing", 0, 95)
+        tk.Label(controls,textvariable=self.ai_status_var,bg=SIDEBAR,
+                 fg=GOOD,font=("Segoe UI",9),wraplength=295).pack(anchor="w",pady=(0,8))
+        self.advanced_btn=self._button(controls,"⚙  GELİŞMİŞ PARAMETRELERİ GÖSTER",self._toggle_advanced)
+        self.advanced_frame=tk.Frame(controls,bg=SIDEBAR)
+        self._slider(self.advanced_frame, "Canny alt eşik", "canny_low", 0, 220)
+        self._slider(self.advanced_frame, "Canny üst eşik", "canny_high", 1, 255)
+        self._slider(self.advanced_frame, "ROI başlangıcı (%)", "roi_top", 35, 80)
+        self._slider(self.advanced_frame, "Hough eşik", "hough_threshold", 5, 90)
+        self._slider(self.advanced_frame, "En küçük çizgi (px)", "min_line_length", 10, 140)
+        self._slider(self.advanced_frame, "Birleştirme aralığı", "max_line_gap", 5, 120)
+        self._slider(self.advanced_frame, "Video yumuşatma (%)", "smoothing", 0, 95)
 
-        self._subhead(controls, "03 / İŞLEMLER")
+        self._subhead(controls, "04 / İŞLEMLER")
         self.btn_detect = self._button(controls, "ŞERİTLERİ TESPİT ET", self._detect, primary=True)
         self.btn_save = self._button(controls, "SONUCU KAYDET", self._save_result)
         self.btn_steps = self._button(controls, "ARA ADIMLARI KAYDET", self._save_steps)
         self.btn_stop = self._button(controls, "VİDEOYU DURDUR", self._stop_video)
         self.btn_stop.configure(state="disabled")
 
+        profile_frame=tk.Frame(main,bg=SIDEBAR,padx=18,pady=12)
+        profile_frame.pack(fill="x",pady=(0,11))
+        tk.Label(profile_frame,text="GÖRÜNTÜ PROFİLİ",bg=SIDEBAR,fg=MUTED,
+                 font=("Segoe UI",9,"bold")).pack(anchor="w",pady=(0,7))
+        row_profile=tk.Frame(profile_frame,bg=SIDEBAR)
+        row_profile.pack(fill="x")
+        tk.Label(row_profile,textvariable=self.scene_lighting,bg=PANEL,fg=GOOD,
+                 font=("Segoe UI",11,"bold"),padx=14,pady=8).pack(side="left",padx=(0,9))
+        tk.Label(row_profile,textvariable=self.scene_geometry,bg=PANEL,fg=BLUE,
+                 font=("Segoe UI",11,"bold"),padx=14,pady=8).pack(side="left",padx=(0,9))
+        tk.Label(row_profile,textvariable=self.scene_brightness,bg=SIDEBAR,fg=MUTED,
+                 font=("Segoe UI",9),anchor="e").pack(side="right",fill="x",expand=True)
         tool_row = tk.Frame(main, bg=BG)
         tool_row.pack(fill="x", pady=(1, 9))
-        tk.Label(tool_row, text="GÖRSEL ÖNİZLEME", bg=BG, fg=TEXT,
+        tk.Label(tool_row, text="ŞERİT ANALİZİ  /  CANLI ÖNİZLEME", bg=BG, fg=TEXT,
                  font=("Segoe UI", 13, "bold")).pack(side="left")
         self.stage_combo = ttk.Combobox(tool_row, textvariable=self.selected_stage, state="readonly", width=27,
                      values=["01 Orijinal", "02 Gri ton", "03 Bulaniklastirma", "04 Canny kenarlar",
@@ -141,7 +185,7 @@ class LaneApp(tk.Tk):
         self.selected_stage.trace_add("write", lambda *_: self._refresh_stage())
         visual_frame = tk.Frame(main, bg=PANEL, padx=12, pady=12)
         visual_frame.pack(fill="both", expand=True)
-        self.image_panel = tk.Label(visual_frame, bg="#0c1627", fg=MUTED,
+        self.image_panel = tk.Label(visual_frame, bg="#0B1728", fg=MUTED,
                                     text="Bir fotoğraf veya video açın", font=("Segoe UI", 13))
         self.image_panel.pack(fill="both", expand=True)
         self.image_panel.bind("<Configure>", lambda *_: self._render_preview())
@@ -172,6 +216,28 @@ class LaneApp(tk.Tk):
                  font=("Segoe UI", 10)).pack(side="left")
         tk.Label(bottom, text="Eğitim ve araştırma amaçlıdır; gerçek araç kontrolünde kullanılmaz.",
                  bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="right")
+
+    def _toggle_advanced(self):
+        self.advanced_visible=not self.advanced_visible
+        if self.advanced_visible:
+            self.advanced_frame.pack(fill="x",pady=(0,12),after=self.advanced_btn)
+        else:
+            self.advanced_frame.pack_forget()
+        self.advanced_btn.configure(text="⚙  GELİŞMİŞ PARAMETRELERİ GİZLE" if self.advanced_visible
+                                    else "⚙  GELİŞMİŞ PARAMETRELERİ GÖSTER")
+
+    def _analyze_loaded_scene(self, frame):
+        try:
+            p=analyze_scene(frame)
+            self.scene_profile=p
+            self.scene_lighting.set("☾  "+p.short_lighting if p.lighting=='gece' else "☀  "+p.short_lighting)
+            self.scene_geometry.set("↝  "+p.short_geometry)
+            self.scene_brightness.set(f"Işık endeksi {p.brightness:.0f}/255  ·  Viraj işareti: {p.curve_score:.1f}")
+        except Exception:
+            self.scene_profile=None
+            self.scene_lighting.set("IŞIK: BELİRSİZ")
+            self.scene_geometry.set("YOL: BELİRSİZ")
+            self.scene_brightness.set("Yeterli görsel veri bulunamadı")
 
     def _subhead(self, parent, text):
         tk.Label(parent, text=text, bg=SIDEBAR, fg=BLUE,
@@ -243,6 +309,7 @@ class LaneApp(tk.Tk):
             cap.release()
         if ok and frame is not None:
             self.current_display = frame
+            self._analyze_loaded_scene(frame)
             self.selected_stage.set("01 Orijinal")
             self._render_preview()
         else:
@@ -264,12 +331,15 @@ class LaneApp(tk.Tk):
         self.current_detection = None
         self.source_name.set(path.name)
         self.current_display = self.current_image
+        self._analyze_loaded_scene(self.current_image)
         self.selected_stage.set("01 Orijinal")
         self.progress_percent.set(0)
         self.progress_text.set("Görüntü işlenmeyi bekliyor")
         self.status.set(f"Görüntü açıldı: {path.name}. Tespit düğmesine basın.")
         self._clear_metrics()
         self._render_preview()
+        if self.auto_detect_var.get():
+            self.after(80, self._detect)
 
     def _clear_metrics(self):
         for v in (self.metric_left, self.metric_right, self.metric_offset, self.metric_segments):
@@ -308,6 +378,12 @@ class LaneApp(tk.Tk):
         self.metric_offset.set(f"{detection.offset_px:+.1f} px" if detection.offset_px is not None else "ÖLÇÜLEMEDİ")
         self.metric_segments.set(str(detection.segment_count) if detection.segment_count else "—")
         self.algorithm_method.set("Kullanılan yöntem: " + detection.method)
+        profile=getattr(detection,"scene_profile",None)
+        if profile is not None:
+            self.scene_profile=profile
+            self.scene_lighting.set(("☾  " if profile.lighting=='gece' else "☀  ")+profile.short_lighting)
+            self.scene_geometry.set("↝  "+profile.short_geometry)
+            self.scene_brightness.set(f"Işık endeksi {profile.brightness:.0f}/255  ·  Viraj işareti: {profile.curve_score:.1f}")
 
     def _detect(self):
         if self.is_processing:

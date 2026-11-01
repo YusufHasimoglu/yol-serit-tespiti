@@ -1,11 +1,13 @@
 """Dört yöntem: klasik, eğrisel renk, yapay zekâ ve otomatik hibrit."""
 from __future__ import annotations
+from dataclasses import replace
 import cv2
 import numpy as np
 from .core import LaneDetector,LaneSettings,Detection
 from .hybrid import detect_hybrid
+from .scene import analyze_scene
 
-MODES={'auto':'Otomatik (AI + eğrisel yedek)', 'ai':'Yapay zekâ (U-Net)',
+MODES={'auto':'Akıllı otomatik (gece / viraj / AI)', 'ai':'Yapay zekâ (U-Net)',
        'hybrid':'Gelişmiş eğrisel takip', 'classic':'Klasik Canny + Hough'}
 
 
@@ -94,6 +96,7 @@ def detect_ai(frame,settings,segmenter):
     stages={'01 Orijinal':frame.copy(),'08 Sonuc':output,'09 AI olasilik haritasi':prob_viz,'10 AI sinif maskeleri':mask_viz}
     det=Detection(output,stages,le,re,offset,float(le is not None)*.5+float(re is not None)*.5,0)
     det.method='Yapay zekâ (U-Net)'
+    det.lane_polynomials=(left,right)
     return det
 
 
@@ -115,35 +118,85 @@ class InferenceEngine:
                 if mode=='ai':raise RuntimeError('Yapay zekâ modeli yüklenemedi: '+str(exc)) from exc
 
     def detect(self,frame,video=False):
-        if self.mode=='classic':
-            result=self.classic.detect(frame,video)
-            result.method='Klasik Hough'
+        scene=analyze_scene(frame)
+
+        def attach(result):
+            result.scene_profile=scene
+            result.method+=f" · {scene.short_lighting.lower()} / {scene.short_geometry.lower()}"
             return result
+
+        if self.mode=='classic':
+            return attach(self.classic.detect(frame,video))
         if self.mode=='hybrid':
             result=detect_hybrid(frame,self.settings)
             result.method='Eğrisel renk takibi'
-            return result
+            return attach(result)
+
         ai=None
         if self.segmenter is not None:
+            # Koşula göre eşik uyarlaması: gece daha az güçlü çizgi piksellerini
+            # korur. Daha düşük eşik yanlış pozitif yaratabileceği için çift
+            # şerit geometrisi ayrıca kontrol edilir.
+            self.segmenter.threshold={'gece':.60,'alacakaranlik':.65,'gunduz':.70}[scene.lighting]
             ai=detect_ai(frame,self.settings,self.segmenter)
-            if self.mode=='ai':return ai
-        # Otomatik: model ikisini de bulursa onunla göster; değilse eğrisel renk yaklaşımı.
-        if ai is not None and ai.both_found:
-            # Kısa bir mesafede aşırı yatay kayma, bariyer/şerit karışmasına işaret edebilir.
-            def plausible(line):
+            if self.mode=='ai':
+                return attach(ai)
+
+        def plausible(obj):
+            if obj is None:return False
+            if obj.left is None or obj.right is None:return False
+            (lbottom,_),(ltop,_) = obj.left
+            (rbottom,_),(rtop,_) = obj.right
+            w,h=frame.shape[1],frame.shape[0]
+            # Yanlış şerit geçişi, olası bariyer ve aşırı geniş şeritleri ele.
+            if lbottom>=rbottom or ltop>=rtop:return False
+            width=(rbottom-lbottom)/w
+            if not .08 <= width <= .92:return False
+            for line in (obj.left,obj.right):
                 (xb,yb),(xt,yt)=line
-                return abs(xb-xt) / max(1,abs(yb-yt)) < 3.4
-            if plausible(ai.left) and plausible(ai.right):
-                return ai
+                if abs(xb-xt)>3.4*max(1,abs(yb-yt)):return False
+            return True
+
+        if ai is not None and plausible(ai):
+            # Gerçek modelin bulduğu iki eğriden, salt renk tahmininden daha
+            # anlamlı bir ikinci-geometri kontrolü elde edilir.
+            left,right=ai.lane_polynomials
+            if left is not None and right is not None:
+                low=max(int(left[0][0,1]),int(right[0][0,1]))
+                high=min(int(left[0][-1,1]),int(right[0][-1,1]))
+                if high-low > frame.shape[0]*.18:
+                    ys=np.linspace(low,high,18)
+                    centers=(np.polyval(left[1],ys)+np.polyval(right[1],ys))*.5
+                    chord=np.linspace(centers[0],centers[-1],len(ys))
+                    deviation=float(np.max(np.abs(centers-chord)))
+                    # Çok küçük sapmaları viraj olarak aşırı yorumlama.
+                    geometry=('viraj' if deviation>frame.shape[1]*.012 else ('belirsiz' if deviation>frame.shape[1]*.006 else 'duz'))
+                    scene=replace(scene,geometry=geometry,
+                                  curve_score=round(deviation,1),geometry_evidence=18)
+            ai.method='Sahneye uyarlanmış U-Net'
+            return attach(ai)
+
         color=detect_hybrid(frame,self.settings)
-        color.method='Eğrisel renk takibi (AI yetersiz/yok)'
-        if color.both_found or (ai is None and (color.left is not None or color.right is not None)):
+        color.method='Eğrisel izleme (yedek)'
+        if plausible(color):
             if ai is not None:
                 color.stages.update({k:v for k,v in ai.stages.items() if k.startswith(('09','10'))})
-            return color
+            return attach(color)
+
+        # Gece ve viraj adaylarında Hough'un düz çizgilerle yol dışına
+        # sapma riski yüksek. Modelin kısmi tespitini, uygun olduğu zaman
+        # tek çizgili klasik Hough'a tercih et.
         classic=self.classic.detect(frame,video)
-        classic.method='Klasik Hough (yedek)'
-        if classic.confidence>=color.confidence:
-            if ai is not None:classic.stages.update({k:v for k,v in ai.stages.items() if k.startswith(('09','10'))})
-            return classic
-        return color
+        classic.method='Klasik Hough (son yedek)'
+        candidates=[c for c in (ai,color,classic) if c is not None]
+        if scene.geometry=='viraj' or scene.lighting=='gece':
+            weight={id(ai):.2} if ai is not None else {}
+            weight[id(color)]=.06
+            weight[id(classic)]=-.16
+        else:
+            weight={id(color):.05,id(classic):-.07}
+            if ai is not None:weight[id(ai)]=.12
+        final=max(candidates,key=lambda c:c.confidence+weight.get(id(c),0.))
+        if ai is not None and final is not ai:
+            final.stages.update({k:v for k,v in ai.stages.items() if k.startswith(('09','10'))})
+        return attach(final)

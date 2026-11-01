@@ -1,14 +1,28 @@
+# ŞERİT GÖRÜ AI V3 — Akıllı Gece / Viraj Analizi
+
+![AI V3 yeni masaüstü arayüz](ornek_sonuclar/arayuz_ai_v3.png)
+
+**Güncel sürüm:** Görsel seçilince otomatik analiz, yenilenmiş koyu tema, gece-gündüz/viraj görüntü profili, sahneye göre eşik uyarlaması, eğrisel şerit takibi ve 300 ek sentetik örnekle eğitilmiş U-Net.
+
+**Windows:** `baslat_ai_windows.bat`  **Komut satırı:** `python -m pip install -r requirements-ai.txt` ardından `python app.py`.
+
+**Düzenli araştırma eğitimi:** GitHub Actions haftalık aday eğitim akışı bulunur. Ağırlıklar bağımsız gerçek yol testi olmadan otomatik yayımlanmaz. [V3 rehberi](docs/AI_V3_KULLANIM.md). [Eğitim sonuçları](modeller/senaryo_egitim_raporu.json).
+
+**Uyarı:** Sahne profili görüntü işleme sezgiselleriyle belirlenir; şerit segmentasyonu U-Net tabanlıdır. Sentetik veride ortalama IoU 0,4382 → 0,7046; gerçek yol doğruluğu henüz ölçülmedi. Tespit bildirimi doğruluk garantisi değildir.
+
+---
+
 # ŞERİT GÖRÜ AI V2 — Yol Görüntülerinden Şerit Çizgisi Tespiti
 
-![Gelişmiş şerit tespiti - sentetik örnek](ornek_sonuclar/hibrit_v2_ornek_yol_duz.png)
+![Güncel AI arayüz ekran görüntüsü](ornek_sonuclar/arayuz_ai_v2.png)
 
 **Yeni sürüm:** Eğitilmiş bir **PyTorch U-Net** örnek modeli (`modeller/serit_unet_demo.pt`), eğrisel renk tabanlı şerit izleme, dört algoritma modu ve yeni eğitim/etiketleme/değerlendirme araçları içerir. Önceki Canny–Hough modu karşılaştırma için korunmuştur.
 
 **En hızlı AI kurulum:** Windows için `baslat_ai_windows.bat`, diğer platformlarda `python -m pip install -r requirements-ai.txt` ve `python app.py`. `baslat_windows.bat` ise PyTorch olmadan çalışır; otomatik mod gerekirse eğrisel algılamayı kullanır.
 
-**Virajlı yol denemesi:** Gerçek kullanıcı görüntüsü üzerinde de test yapıldı; hak/mahremiyet gerekçesiyle ham görsel ve bu görüntüden türetilen çıktılar açık kaynak depoya eklenmedi. Yerel paket içinde mevcuttur.
+**Virajlı kullanıcı örneği:** `ornekler/kullanici_yolu.png` (ekran görüntüsünün yol kısmı), `ornek_sonuclar/guncel_auto_duzeltilmis.png` (AI çıktı), `ornek_sonuclar/hibrit_v2_kullanici_yolu.png` (renk tabanlı çıktı).
 
-**Eğitim:** 120 sentetik görüntü üretildi, 18'i sentetik doğrulamaya ayrıldı; ayrıca 1 gerçek ekran görüntüsünün yol bölümü elle/kabaca etiketlenerek eğitim setine eklendi (bu özel veri GitHub'da paylaşılmadı). En iyi sentetik doğrulama IoU'su 8. epoch sonunda **0,6524**. **Gerçek yol verisiyle bağımsız test yapılmadı; bu gerçek yol başarısı değildir.** Ekran görüntüsüyle yapılan test eğitim verisi içerdiği için yalnızca *gösterim*dir.
+**Eğitim:** 120 sentetik görüntü üretildi, 18'i sentetik doğrulamaya ayrıldı; ayrıca 1 gerçek ekran görüntüsünün yol bölümü elle/kabaca etiketlenerek eğitim setine eklendi. En iyi sentetik doğrulama IoU'su 8. epoch sonunda **0,6524**. **Gerçek yol verisiyle bağımsız test yapılmadı; bu gerçek yol başarısı değildir.** Ekran görüntüsüyle yapılan test eğitim verisi içerdiği için yalnızca *gösterim*dir.
 
 **Gerçek yol görüntülerini etiketlemek ve modeli geliştirmek için** [AI eğitim ve test rehberine](docs/AI_EGITIM_REHBERI.md) bakın.
 
@@ -22,7 +36,7 @@
 | Klasik Canny + Hough | Önceki projenin temel yöntemi | OpenCV |
 
 ```bash
-python cli.py --input ornekler/ornek_yol_duz.png --output sonuc.png --mode auto --steps
+python cli.py --input ornekler/kullanici_yolu.png --output sonuc.png --mode auto --steps
 python cli.py --input ornekler/ornek_yol_video.mp4 --output sonuc.mp4 --mode auto
 python etiketle.py --image yol.jpg --name yol_002
 python egit.py --synthetic 120 --epochs 10 --batch 4
