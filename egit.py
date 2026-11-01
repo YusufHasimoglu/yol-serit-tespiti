@@ -38,8 +38,10 @@ def main():
     if args.synthetic<0 or args.epochs<1 or args.batch<1 or args.temporal_augment<0: p.error('Eğitim sayıları geçersiz')
     import torch
     from torch.utils.data import DataLoader,Dataset
-    from lanevision.training_data import (synthetic_sample,load_user_samples,
+    from lanevision.training_data import (synthetic_sample,load_user_samples_named,
                                           tusimple_samples,bdd_style_samples,temporal_frame_variants)
+    from lanevision.video_training import (load_video_anchor_samples, video_anchor_groups,
+                                           video_training_stats)
     from lanevision.ai_model import build_model
     torch.manual_seed(args.seed);np.random.seed(args.seed);random.seed(args.seed)
     torch.set_num_threads(min(5,torch.get_num_threads()))
@@ -57,13 +59,25 @@ def main():
         # Do not silently turn unknown styles into fabricated targets.
         if args.tusimple_json:
             p.error('Düz/kesik BDD eğitimi ile etiketsiz TuSimple maskeleri aynı modelde karıştırılamaz.')
-    for user_index,e in enumerate(load_user_samples(args.real_folder,style_aware=style_aware) or []):
+    video_groups = video_anchor_groups(args.real_folder) if style_aware else {}
+    video_names = set(video_groups)
+    for user_index,(name,image,mask) in enumerate(load_user_samples_named(args.real_folder,style_aware=style_aware) or []):
+        # Aynı video ankrajı NPZ kaydından ayrıca yüklenir; iki kez eklenmez.
+        if name in video_names:
+            continue
+        e = (image, mask)
         # Türetilen komşu kareler aynı kaynak grubunda kalır; böylece aynı
         # görüntünün versiyonları eğitim ve doğrulama arasında sızmaz.
         group=f'kullanici-{user_index}'
         examples.append(e);origins.append('etiketli-gercek');groups.append(group)
         for variant in temporal_frame_variants(e[0],e[1],args.temporal_augment,args.seed+user_index):
             examples.append(variant);origins.append('etiketli-video-cesitlendirme');groups.append(group)
+    if style_aware:
+        for video_index,(image,mask,group,name) in enumerate(load_video_anchor_samples(args.real_folder)):
+            e = (image, mask)
+            examples.append(e);origins.append('etiketli-video-ankraji');groups.append(group)
+            for variant in temporal_frame_variants(e[0],e[1],args.temporal_augment,args.seed+50000+video_index):
+                examples.append(variant);origins.append('etiketli-video-cesitlendirme');groups.append(group)
     if args.tusimple_json and args.tusimple_root:
         for e in tusimple_samples(args.tusimple_root,args.tusimple_json,args.limit or None):
             examples.append(e);origins.append('TuSimple');groups.append(f'tusimple-{len(groups)}')
@@ -148,6 +162,7 @@ def main():
             model.to(device)
     report={'train_images':len(train),'validation_images':len(valids),'source_counts':{k:origins.count(k) for k in sorted(set(origins))},
             'temporal_augment_per_user_frame':args.temporal_augment,
+            'video_training':video_training_stats(args.real_folder) if style_aware else None,
             'best_validation_iou':best,'output_channels':output_channels,'channel_layout':channel_layout,
             'device':device,'history':history,'weights':str(args.out)}
     report_path=args.report or (args.out.parent/'egitim_raporu.json')

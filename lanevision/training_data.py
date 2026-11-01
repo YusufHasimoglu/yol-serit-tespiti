@@ -280,7 +280,7 @@ def bdd_style_samples(root: Path, labels_json: Path, limit: int|None=None,
             break
 
 
-def load_user_samples(folder:Path,style_aware:bool=False):
+def load_user_samples_named(folder:Path,style_aware:bool=False):
     """data/gercek/images/*.png ve data/gercek/masks/*_mask.png.
 
     Eski maskelerde kırmızı=sol, yeşil=sağdır. Dört sınıflı maskeler ise
@@ -310,4 +310,10 @@ def load_user_samples(folder:Path,style_aware:bool=False):
             if style_aware:continue
             # OpenCV BGR: kırmızı kanal 2 sol, yeşil kanal 1 sağ
             labels=np.stack([(mask[:,:,2]>150).astype(np.uint8)*255,(mask[:,:,1]>150).astype(np.uint8)*255],-1)
-        yield image,labels
+        yield p.stem, image, labels
+
+
+def load_user_samples(folder:Path,style_aware:bool=False):
+    """Ad içermeyen geriye uyumlu kullanıcı örneği üreticisi."""
+    for _, image, labels in load_user_samples_named(folder, style_aware=style_aware) or []:
+        yield image, labels

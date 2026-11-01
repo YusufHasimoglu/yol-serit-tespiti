@@ -27,7 +27,8 @@ def _paths(data_root: str | Path) -> tuple[Path, Path]:
 
 
 def save_video_anchor(data_root: str | Path, source: str | Path, frame_index: int,
-                      frame: np.ndarray, line_mask: np.ndarray) -> Path:
+                      frame: np.ndarray, line_mask: np.ndarray,
+                      training_name: str | None = None) -> Path:
     """Bir düzeltmeyi, yalnızca ait olduğu video ve kare numarasıyla sakla."""
     if frame_index < 1:
         raise ValueError("Video kare numarası 1 veya daha büyük olmalıdır.")
@@ -45,8 +46,11 @@ def save_video_anchor(data_root: str | Path, source: str | Path, frame_index: in
         records = []
     records = [record for record in records
                if not (record.get("video_id") == video_id and int(record.get("frame_index", -1)) == frame_index)]
-    records.append({"video_id": video_id, "frame_index": frame_index, "artifact": artifact,
-                    "updated_at": datetime.now(timezone.utc).isoformat()})
+    record = {"video_id": video_id, "frame_index": frame_index, "artifact": artifact,
+              "updated_at": datetime.now(timezone.utc).isoformat()}
+    if training_name:
+        record["training_name"] = str(training_name)
+    records.append(record)
     records.sort(key=lambda record: (record["video_id"], int(record["frame_index"])))
     index_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
     return artifact_path
