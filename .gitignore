@@ -34,3 +34,5 @@ __pycache__/
 /.third_party/
 /sonuclar/
 /output/
+# Yerel olarak hazırlanan telifsiz/araştırma örnek medyaları GitHub'a eklenmez.
+/ornek_medya/

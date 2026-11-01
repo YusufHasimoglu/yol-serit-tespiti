@@ -26,14 +26,17 @@ from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages
 from .scene import analyze_scene
 
 APP_ROOT = Path(__file__).resolve().parent.parent
-BG = "#070F1D"
-SIDEBAR = "#111F32"
-PANEL = "#182C45"
-BLUE = "#4CAEF8"
-TEXT = "#F0F6FF"
-MUTED = "#9EADC4"
-GOOD = "#2DE2BA"
-BORDER = "#253C57"
+BG = "#09111F"
+SIDEBAR = "#101D32"
+PANEL = "#172A46"
+BLUE = "#56B7F5"
+TEXT = "#F4F8FF"
+MUTED = "#A9B7CC"
+GOOD = "#33D8B0"
+BORDER = "#29415F"
+PANEL_DARK = "#0D192B"
+PANEL_HOVER = "#203A5D"
+WARM = "#F4B860"
 # Teknik modlar test/komut satırı için korunur. Masaüstü arayüzü ise günlük
 # kullanımda yalnızca anlaşılır üç seçeneği gösterir.
 USER_VISIBLE_MODES={
@@ -47,8 +50,8 @@ class LaneApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("ŞERİT ANALİZİ  |  Akıllı Yol ve Şerit Tespiti")
-        self.geometry("1390x860")
-        self.minsize(1050, 690)
+        self.geometry("1480x900")
+        self.minsize(1120, 720)
         self.configure(bg=BG)
         self.current_file: Path | None = None
         self.current_image: np.ndarray | None = None
@@ -128,28 +131,35 @@ class LaneApp(tk.Tk):
     def _configure_styles(self):
         style = ttk.Style(self)
         style.theme_use("clam")
-        style.configure("TCombobox", fieldbackground="#dfeaf8", background="#dfeaf8", padding=6)
-        style.configure("Horizontal.TProgressbar", troughcolor=PANEL, background=BLUE, borderwidth=0)
+        style.configure("TCombobox", fieldbackground=PANEL, background=PANEL, foreground=TEXT,
+                        selectforeground=TEXT, selectbackground=PANEL_HOVER, bordercolor=BORDER,
+                        lightcolor=BORDER, darkcolor=BORDER, arrowcolor=GOOD, padding=8)
+        style.map("TCombobox", fieldbackground=[("readonly", PANEL)],
+                  foreground=[("readonly", TEXT)], background=[("readonly", PANEL)])
+        style.configure("Horizontal.TProgressbar", troughcolor=PANEL_DARK, background=GOOD,
+                        bordercolor=PANEL_DARK, lightcolor=GOOD, darkcolor=GOOD, borderwidth=0)
 
     def _build_ui(self):
-        header = tk.Frame(self, bg=BG)
-        header.pack(fill="x", padx=26, pady=(19, 16))
-        brand = tk.Frame(header, bg=BG)
-        brand.pack(side="left")
-        tk.Label(brand,text="◈",bg=BG,fg=GOOD,font=("Segoe UI Symbol",28,"bold")).pack(side="left",padx=(0,10))
-        namebox=tk.Frame(brand,bg=BG)
+        header = tk.Frame(self, bg=SIDEBAR, highlightbackground=BORDER, highlightthickness=1)
+        header.pack(fill="x", padx=24, pady=(18, 16))
+        brand = tk.Frame(header, bg=SIDEBAR)
+        brand.pack(side="left", padx=20, pady=13)
+        tk.Label(brand,text="◇",bg=SIDEBAR,fg=GOOD,font=("Segoe UI Symbol",30,"bold")).pack(side="left",padx=(0,12))
+        namebox=tk.Frame(brand,bg=SIDEBAR)
         namebox.pack(side="left")
-        tk.Label(namebox, text="ŞERİT ANALİZİ", bg=BG, fg=TEXT,
-                 font=("Segoe UI", 23, "bold")).pack(anchor="w")
-        tk.Label(namebox,text="AKILLI YOL GÖRÜNTÜSÜ ANALİZ PLATFORMU",bg=BG,fg=MUTED,
-                 font=("Segoe UI",9,"bold")).pack(anchor="w")
-        tk.Label(header,text="●  AI / ŞERİT DEVAMLILIĞI",bg=SIDEBAR,fg=GOOD,
-                 font=("Segoe UI",10,"bold"),padx=17,pady=10).pack(side="right",pady=8)
+        tk.Label(namebox, text="ŞERİT ANALİZİ", bg=SIDEBAR, fg=TEXT,
+                 font=("Segoe UI", 24, "bold")).pack(anchor="w")
+        tk.Label(namebox,text="AKILLI YOL GÖRÜNTÜSÜ ANALİZ PLATFORMU",bg=SIDEBAR,fg=MUTED,
+                 font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(1,0))
+        status_badge=tk.Frame(header,bg=PANEL,padx=15,pady=9,highlightbackground=BORDER,highlightthickness=1)
+        status_badge.pack(side="right",padx=20,pady=18)
+        tk.Label(status_badge,text="●  SİSTEM ÇEVRİMİÇİ",bg=PANEL,fg=GOOD,
+                 font=("Segoe UI",10,"bold")).pack()
 
         container = tk.Frame(self, bg=BG)
         container.pack(fill="both", expand=True, padx=24, pady=(0, 10))
         # Dar ekranlarda son düğmelerin kaybolmaması için kaydırılabilir sol panel.
-        sidebar_holder = tk.Frame(container, bg=SIDEBAR, width=330)
+        sidebar_holder = tk.Frame(container, bg=SIDEBAR, width=330, highlightbackground=BORDER, highlightthickness=1)
         sidebar_holder.pack(side="left", fill="y", padx=(0, 15))
         sidebar_holder.pack_propagate(False)
         scroller = tk.Canvas(sidebar_holder, bg=SIDEBAR, highlightthickness=0, borderwidth=0)
@@ -213,7 +223,7 @@ class LaneApp(tk.Tk):
         self.btn_stop = self._button(controls, "VİDEOYU DURDUR", self._stop_video)
         self.btn_stop.configure(state="disabled")
 
-        profile_frame=tk.Frame(main,bg=SIDEBAR,padx=18,pady=12)
+        profile_frame=tk.Frame(main,bg=SIDEBAR,padx=18,pady=13,highlightbackground=BORDER,highlightthickness=1)
         profile_frame.pack(fill="x",pady=(0,11))
         tk.Label(profile_frame,text="GÖRÜNTÜ PROFİLİ",bg=SIDEBAR,fg=MUTED,
                  font=("Segoe UI",9,"bold")).pack(anchor="w",pady=(0,7))
@@ -235,22 +245,24 @@ class LaneApp(tk.Tk):
                              "09 AI olasilik haritasi", "10 AI sinif maskeleri"])
         self.stage_combo.pack(side="right")
         self.selected_stage.trace_add("write", lambda *_: self._refresh_stage())
-        visual_frame = tk.Frame(main, bg=PANEL, padx=12, pady=12)
+        visual_frame = tk.Frame(main, bg=PANEL, padx=12, pady=12, highlightbackground=BORDER, highlightthickness=1)
         visual_frame.pack(fill="both", expand=True)
-        self.image_panel = tk.Label(visual_frame, bg="#0B1728", fg=MUTED,
+        self.image_panel = tk.Label(visual_frame, bg=PANEL_DARK, fg=MUTED,
                                     text="Bir fotoğraf veya video açın", font=("Segoe UI", 13))
         self.image_panel.pack(fill="both", expand=True)
         self.image_panel.bind("<Configure>", lambda *_: self._render_preview())
 
         stats = tk.Frame(main, bg=BG)
         stats.pack(fill="x", pady=(12, 7))
+        card_accents=(GOOD, BLUE, WARM, "#C084FC")
         for i, (title, var) in enumerate((("SOL ŞERİT", self.metric_left),
                                            ("SAĞ ŞERİT", self.metric_right),
                                            ("MERKEZ SAPMASI", self.metric_offset),
                                            ("ÇİZGİ DESTEĞİ", self.metric_segments))):
-            card = tk.Frame(stats, bg=PANEL, padx=13, pady=9)
+            card = tk.Frame(stats, bg=PANEL, padx=13, pady=9, highlightbackground=BORDER, highlightthickness=1)
             card.grid(row=0, column=i, sticky="nsew", padx=(0, 8) if i < 3 else 0)
             stats.grid_columnconfigure(i, weight=1)
+            tk.Frame(card, bg=card_accents[i], height=3).pack(fill="x", pady=(0, 8))
             tk.Label(card, text=title, bg=PANEL, fg=MUTED,
                      font=("Segoe UI", 9, "bold")).pack(anchor="w")
             tk.Label(card, textvariable=var, bg=PANEL, fg=TEXT,
@@ -316,13 +328,19 @@ class LaneApp(tk.Tk):
 
     def _subhead(self, parent, text):
         tk.Label(parent, text=text, bg=SIDEBAR, fg=BLUE,
-                 font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(4, 9))
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(9, 8))
 
     def _button(self, parent, label, command, primary=False):
         btn = tk.Button(parent, text=label, command=command,
-                        bg=BLUE if primary else PANEL, fg="#00172a" if primary else TEXT,
-                        activebackground="#88dbff", activeforeground="#00172a", bd=0,
-                        font=("Segoe UI", 10, "bold"), padx=10, pady=9, cursor="hand2")
+                        bg=BLUE if primary else PANEL, fg="#031321" if primary else TEXT,
+                        activebackground="#82CDF8" if primary else PANEL_HOVER,
+                        activeforeground="#031321" if primary else TEXT, bd=0,
+                        highlightthickness=0, relief="flat", font=("Segoe UI", 10, "bold"),
+                        padx=11, pady=10, cursor="hand2")
+        normal=BLUE if primary else PANEL
+        hover="#82CDF8" if primary else PANEL_HOVER
+        btn.bind("<Enter>", lambda _event: btn.configure(bg=hover))
+        btn.bind("<Leave>", lambda _event: btn.configure(bg=normal))
         btn.pack(fill="x", pady=(0, 5))
         return btn
 

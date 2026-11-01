@@ -102,3 +102,18 @@ python egit_yolopv2_geri_bildirim.py
 
 Eğitilen ağırlık ve raporu yalnızca `modeller/` klasöründe bilgisayarınızda
 kalır; GitHub'a yüklenmez.
+
+## Yerel şerit örnek medyası
+
+`hazirla_yol_serit_gorselleri.py`, mevcut yerel BDD100K verisinden 10 farklı
+şeritli yol görselini `ornek_medya/gorseller/` klasörüne kopyalar. Video için
+mevcut BDD100K indirici, aynı dizindeki `ornek_medya/videolar/` hedefine
+çalıştırılabilir:
+
+```bash
+python hazirla_yol_serit_gorselleri.py
+python indir_bdd_video_ornekleri.py --manifest data/external/bdd100k/bdd100_manifest.json --out ornek_medya/videolar --count 10
+```
+
+Bu örnekler yerelde tutulur ve GitHub'a yüklenmez. BDD100K kullanım koşulları
+veri setinin resmî lisansına tabidir.
