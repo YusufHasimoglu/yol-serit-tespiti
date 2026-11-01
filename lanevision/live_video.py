@@ -32,7 +32,7 @@ class LiveVideoSession:
     """
 
     def __init__(self, source: str | Path, settings: LaneSettings | None = None,
-                 mode: str = "auto"):
+                 mode: str = "auto", start_frame: int = 0):
         self.source = Path(source)
         if not self.source.is_file():
             raise FileNotFoundError(self.source)
@@ -43,7 +43,13 @@ class LiveVideoSession:
         fps = float(self.capture.get(cv2.CAP_PROP_FPS))
         self.fps = fps if np.isfinite(fps) and fps > 0 else 25.0
         self.total = max(0, int(self.capture.get(cv2.CAP_PROP_FRAME_COUNT)))
-        self.index = 0
+        start_frame = int(start_frame)
+        if start_frame < 0 or (self.total and start_frame >= self.total):
+            self.capture.release()
+            raise ValueError(f"Başlangıç karesi 0 ile {max(0, self.total - 1)} arasında olmalı.")
+        if start_frame:
+            self.capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        self.index = start_frame
         self.closed = False
         self.settings = settings or LaneSettings()
         self.settings.validate()

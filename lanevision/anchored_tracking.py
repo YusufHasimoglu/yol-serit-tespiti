@@ -103,6 +103,11 @@ class ManualLaneAnchor:
         for side, codes in _SIDE_CODES.items():
             low, high, spans = _dash_spans(line_mask, codes)
             self.sides[side] = _SideState(_marking_type(line_mask, side), _sample_centres(line_mask, codes), spans, low, high)
+        self.last_polynomials = {
+            side: _robust_poly(state.points.reshape(-1, 2))[0]
+            for side, state in self.sides.items()
+        }
+        self.prediction_frames = 0
 
     def _track_side(self, state: _SideState, current_gray: np.ndarray) -> tuple[np.ndarray, _SideState, float] | None:
         next_points, status, errors = cv2.calcOpticalFlowPyrLK(
@@ -133,6 +138,50 @@ class ManualLaneAnchor:
         new_state = _SideState(state.kind, kept.reshape(-1, 1, 2).astype(np.float32), state.spans, low, high)
         return poly, new_state, coverage
 
+    def _recover_side(self, side: str, state: _SideState, current_gray: np.ndarray) -> tuple[np.ndarray, _SideState, float] | None:
+        """Öngörülen eğrinin dar çevresinde gerçek çizgi kenarı ara.
+
+        Optik akış gölge, parlama veya kısa örtülme nedeniyle koptuğunda tüm
+        görüntüde yeni bir şerit aramak yanlış bariyer seçimine yol açabilir.
+        Bu arama yalnızca kullanıcının çizdiği yolun beklenen devamında yapılır.
+        """
+        prediction = self.last_polynomials[side]
+        h, w = current_gray.shape[:2]
+        edges = cv2.Canny(cv2.GaussianBlur(current_gray, (5, 5), 0), 55, 155)
+        corridor = min(max(20, int(w * .055)), 34 + self.prediction_frames * 3)
+        spans = ((0.0, 1.0),) if state.kind == "duz" else state.spans
+        candidates = []
+        for start, end in spans:
+            y0 = state.low + (state.high - state.low) * start
+            y1 = state.low + (state.high - state.low) * end
+            for y in np.linspace(y0, y1, max(6, int((y1 - y0) / 12))):
+                yi = int(round(y))
+                if not 2 <= yi < h - 2:
+                    continue
+                expected = float(np.polyval(prediction, y))
+                lo, hi = max(2, int(expected - corridor)), min(w - 2, int(expected + corridor + 1))
+                if hi - lo < 3:
+                    continue
+                band = edges[yi - 1:yi + 2, lo:hi].max(axis=0)
+                if not np.any(band):
+                    continue
+                # Yakındaki güçlü kenarı seç; uzak, alakasız yol çizgisi veya
+                # kaldırım kenarı tahmin eğrisinin yerine geçemez.
+                offsets = np.arange(lo, hi) - expected
+                scores = band.astype(np.float32) - np.abs(offsets) * 6.0
+                x = float(np.arange(lo, hi)[int(np.argmax(scores))])
+                candidates.append((x, float(y)))
+        fitted = _robust_poly(np.asarray(candidates, np.float32)) if len(candidates) >= 6 else None
+        if fitted is None:
+            return None
+        poly, kept = fitted
+        coverage = min(.72, len(kept) / max(1, len(state.points)))
+        if coverage < .22:
+            return None
+        recovered = _SideState(state.kind, kept.reshape(-1, 1, 2).astype(np.float32), state.spans,
+                               float(kept[:, 1].min()), float(kept[:, 1].max()))
+        return poly, recovered, coverage
+
     @staticmethod
     def _draw_side(output: np.ndarray, poly: np.ndarray, state: _SideState, thickness: int) -> np.ndarray:
         full = _curve(poly, state.low, state.high)
@@ -152,9 +201,21 @@ class ManualLaneAnchor:
             return None
         current_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         tracked = {side: self._track_side(state, current_gray) for side, state in self.sides.items()}
-        if any(value is None for value in tracked.values()):
-            self.previous_gray = current_gray
-            return None
+        predicted = set()
+        for side, state in self.sides.items():
+            if tracked[side] is not None:
+                continue
+            tracked[side] = self._recover_side(side, state, current_gray)
+            if tracked[side] is not None:
+                continue
+            # Kısa bir örtülme veya kesik çizginin boşluğu sırasında önceki
+            # yol geometrisi güvenli bir köprü sağlar. Bu köprü sınırlıdır;
+            # kalıcı kanıt yoksa aşağıda normal algılamaya geri dönülür.
+            if self.prediction_frames >= 10:
+                self.previous_gray = current_gray
+                return None
+            predicted.add(side)
+            tracked[side] = (self.last_polynomials[side], state, .30)
         left_poly, left_state, left_coverage = tracked["left"]
         right_poly, right_state, right_coverage = tracked["right"]
         left_curve = _curve(left_poly, left_state.low, left_state.high)
@@ -190,10 +251,13 @@ class ManualLaneAnchor:
                                  "11 Kullanıcı ankrajı": output},
                         left_end, right_end, w / 2 - (left_bottom + right_bottom) / 2,
                         confidence, len(left_state.points) + len(right_state.points))
-        det.method = "Kullanıcı ankrajlı optik şerit takibi"
+        det.method = ("Kullanıcı ankrajlı öngörülü şerit takibi" if predicted
+                      else "Kullanıcı ankrajlı optik şerit takibi")
         det.lane_polynomials = ((left_curve, left_poly), (right_curve, right_poly))
         det.marking_types = (left_state.kind, right_state.kind)
         self.previous_gray = current_gray
         self.sides = {"left": left_state, "right": right_state}
+        self.last_polynomials = {"left": left_poly, "right": right_poly}
+        self.prediction_frames = self.prediction_frames + 1 if predicted else 0
         return det
 

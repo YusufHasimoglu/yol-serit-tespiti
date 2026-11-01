@@ -52,6 +52,10 @@ class LaneApp(tk.Tk):
         self.live_frame_index = 0
         self.pending_manual_anchor: tuple[np.ndarray, np.ndarray] | None = None
         self.annotation_in_progress = False
+        self.video_total_frames = 0
+        self.video_selected_index = 0
+        self.video_seek_after_id = None
+        self.video_seek_sync = False
         self.stop_event = threading.Event()
         self.messages: queue.Queue[tuple] = queue.Queue(maxsize=80)
         self.preview_photo = None
@@ -75,6 +79,8 @@ class LaneApp(tk.Tk):
         self.metric_offset = tk.StringVar(value="—")
         self.metric_segments = tk.StringVar(value="—")
         self.source_name = tk.StringVar(value="Dosya seçilmedi")
+        self.video_frame_var = tk.IntVar(value=0)
+        self.video_frame_text = tk.StringVar(value="Video karesi: video açın")
         self.scene_lighting = tk.StringVar(value="IŞIK: BEKLENİYOR")
         self.scene_geometry = tk.StringVar(value="YOL: BEKLENİYOR")
         self.scene_brightness = tk.StringVar(value="Görsel analizi bekleniyor")
@@ -146,6 +152,15 @@ class LaneApp(tk.Tk):
         self._button(controls, "ÖRNEK GÖRÜNTÜYÜ AÇ", lambda: self._load_example_if_exists(force=True))
         tk.Label(controls, textvariable=self.source_name, bg=SIDEBAR, fg=MUTED, wraplength=277,
                  justify="left", font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 12))
+
+        self._subhead(controls, "01B / VİDEO KARESİ")
+        tk.Label(controls, textvariable=self.video_frame_text, bg=SIDEBAR, fg=MUTED,
+                 font=("Segoe UI", 9)).pack(anchor="w")
+        self.video_seek = tk.Scale(controls, from_=0, to=1, orient="horizontal", showvalue=False,
+                                   variable=self.video_frame_var, command=self._queue_video_seek,
+                                   state="disabled", bg=SIDEBAR, fg=TEXT, troughcolor=PANEL,
+                                   highlightthickness=0, activebackground=BLUE, bd=0)
+        self.video_seek.pack(fill="x", pady=(1, 10))
 
         self._subhead(controls, "02 / AKILLI ANALİZ")
         tk.Checkbutton(controls,text="Görsel açıldığında otomatik analiz et",variable=self.auto_detect_var,
@@ -351,6 +366,7 @@ class LaneApp(tk.Tk):
         self.source_name.set(self.current_file.name)
         cap = cv2.VideoCapture(str(self.current_file))
         try:
+            total = max(0, int(cap.get(cv2.CAP_PROP_FRAME_COUNT))) if cap.isOpened() else 0
             ok, frame = cap.read() if cap.isOpened() else (False, None)
         finally:
             cap.release()
@@ -366,6 +382,7 @@ class LaneApp(tk.Tk):
             return
         self.btn_live.configure(state="normal", text="▶ CANLI VİDEOYU BAŞLAT")
         self.btn_stop.configure(state="disabled")
+        self._configure_video_seek(total, 0, enabled=True)
         self.status.set("Video seçildi. Canlı kaplamayı başlatın veya videoyu dosyaya işleyin.")
         self.progress_percent.set(0)
         self.progress_text.set("Canlı video başlatılmayı bekliyor")
@@ -379,6 +396,7 @@ class LaneApp(tk.Tk):
             messagebox.showerror("Dosya hatası", str(exc))
             return
         self.current_file = path
+        self._configure_video_seek(0, 0, enabled=False)
         self.btn_live.configure(state="disabled", text="▶ CANLI VİDEOYU BAŞLAT")
         self.btn_stop.configure(state="disabled")
         self.current_detection = None
@@ -397,6 +415,65 @@ class LaneApp(tk.Tk):
             return
         if self.auto_detect_var.get():
             self.after(80, self._detect)
+
+    def _configure_video_seek(self, total: int, index: int, enabled: bool):
+        """Keep the frame slider in sync without treating programmatic moves as user seeks."""
+        self.video_total_frames = max(0, int(total))
+        self.video_selected_index = max(0, min(int(index), max(0, self.video_total_frames - 1)))
+        self.video_seek_sync = True
+        self.video_seek.configure(to=max(1, self.video_total_frames - 1), state="normal" if enabled else "disabled")
+        self.video_frame_var.set(self.video_selected_index)
+        self.video_seek_sync = False
+        self.video_frame_text.set(
+            f"Seçili kare: {self.video_selected_index + 1} / {self.video_total_frames}"
+            if enabled and self.video_total_frames else "Video karesi: video açın"
+        )
+
+    def _queue_video_seek(self, value):
+        """Debounce slider motion so dragging does not decode every intermediate frame."""
+        if self.video_seek_sync or self.annotation_in_progress or self.is_processing:
+            return
+        if self.current_file is None or self.current_file.suffix.lower() not in VIDEO_EXTENSIONS:
+            return
+        self.video_selected_index = max(0, min(int(float(value)), max(0, self.video_total_frames - 1)))
+        self.video_frame_text.set(f"Seçili kare: {self.video_selected_index + 1} / {self.video_total_frames}")
+        self._close_live_video()
+        self.btn_live.configure(state="normal", text="▶ SEÇİLİ KARENDEN BAŞLAT")
+        if self.video_seek_after_id is not None:
+            try:
+                self.after_cancel(self.video_seek_after_id)
+            except tk.TclError:
+                pass
+        self.video_seek_after_id = self.after(140, self._show_selected_video_frame)
+
+    def _show_selected_video_frame(self):
+        self.video_seek_after_id = None
+        if self.current_file is None or self.current_file.suffix.lower() not in VIDEO_EXTENSIONS:
+            return
+        cap = cv2.VideoCapture(str(self.current_file))
+        try:
+            if not cap.isOpened():
+                raise ValueError("Video açılamadı.")
+            cap.set(cv2.CAP_PROP_POS_FRAMES, self.video_selected_index)
+            ok, frame = cap.read()
+        except Exception as exc:
+            messagebox.showerror("Kare açılamadı", str(exc))
+            return
+        finally:
+            cap.release()
+        if not ok or frame is None:
+            messagebox.showerror("Kare açılamadı", "Seçilen video karesi okunamadı.")
+            return
+        self.current_image = frame
+        self.current_detection = None
+        self.current_display = frame
+        self.selected_stage.set("01 Orijinal")
+        self._analyze_loaded_scene(frame)
+        self._clear_metrics()
+        self.progress_percent.set(100 * (self.video_selected_index + 1) / self.video_total_frames if self.video_total_frames else 0)
+        self.progress_text.set(f"Seçilen kare: {self.video_selected_index + 1} / {self.video_total_frames}")
+        self.status.set("Kare seçildi. Etiketleyebilir veya bu kareden canlı takibi başlatabilirsiniz.")
+        self._render_preview()
 
     def _clear_metrics(self):
         for v in (self.metric_left, self.metric_right, self.metric_offset, self.metric_segments):
@@ -524,7 +601,8 @@ class LaneApp(tk.Tk):
             return
         if self.live_session is None:
             try:
-                self.live_session = LiveVideoSession(self.current_file, self._settings(), self._mode())
+                self.live_session = LiveVideoSession(self.current_file, self._settings(), self._mode(),
+                                                     start_frame=self.video_selected_index)
                 if self.pending_manual_anchor is not None:
                     anchor_frame, anchor_mask = self.pending_manual_anchor
                     self.live_session.set_manual_anchor(anchor_frame, anchor_mask)
@@ -538,6 +616,7 @@ class LaneApp(tk.Tk):
         self.btn_live.configure(state="disabled", text="▶ CANLI VİDEO ÇALIŞIYOR")
         self.btn_stop.configure(state="normal")
         self.btn_detect.configure(state="disabled")
+        self.video_seek.configure(state="disabled")
         # Video seçilirken ilk karenin ham görünümü gösterilir. Canlı
         # takipte ise kullanıcı her zaman kaplamalı sonucu görmelidir.
         self.selected_stage.set("08 Sonuc")
@@ -559,6 +638,11 @@ class LaneApp(tk.Tk):
             self._finish_live_video(completed=True)
             return
         self.live_frame_index = packet.index
+        self.video_selected_index = max(0, packet.index - 1)
+        self.video_seek_sync = True
+        self.video_frame_var.set(self.video_selected_index)
+        self.video_seek_sync = False
+        self.video_frame_text.set(f"Canlı kare: {packet.index} / {packet.total if packet.total else '?'}")
         self.current_image = packet.original
         self.current_detection = packet.detection
         self.stage_combo.configure(values=list(packet.detection.stages.keys()))
@@ -589,6 +673,7 @@ class LaneApp(tk.Tk):
         self.btn_live.configure(state="normal", text="▶ CANLI VİDEOYA DEVAM ET")
         self.btn_stop.configure(state="disabled")
         self.btn_detect.configure(state="normal")
+        self.video_seek.configure(state="normal")
         if self.current_detection is not None:
             self._set_feedback_ready(True, f"Kare {self.live_frame_index} duraklatıldı. Doğruysa kaydedin, hatalıysa çizin.")
         self.status.set(message or f"Canlı video {self.live_frame_index}. karede duraklatıldı.")
@@ -606,6 +691,12 @@ class LaneApp(tk.Tk):
             self.live_session.close()
             self.live_session = None
         self.pending_manual_anchor = None
+        if self.video_seek_after_id is not None:
+            try:
+                self.after_cancel(self.video_seek_after_id)
+            except tk.TclError:
+                pass
+            self.video_seek_after_id = None
         if hasattr(self, "btn_live"):
             self.btn_live.configure(state="disabled", text="▶ CANLI VİDEOYU BAŞLAT")
             self.btn_stop.configure(state="disabled")
@@ -615,11 +706,14 @@ class LaneApp(tk.Tk):
     def _finish_live_video(self, completed: bool = False, error: str | None = None):
         self._close_live_video()
         self.btn_live.configure(state="normal", text="▶ CANLI VİDEOYU BAŞTAN BAŞLAT")
+        if self.video_total_frames:
+            self.video_seek.configure(state="normal")
         if error:
             self.status.set("Canlı video sırasında hata oluştu.")
             messagebox.showerror("Canlı video hatası", error)
         elif completed:
             self.progress_percent.set(100)
+            self._configure_video_seek(self.video_total_frames, 0, enabled=True)
             self.status.set("Canlı video tamamlandı. Baştan oynatabilir veya son kareyi değerlendirebilirsiniz.")
         else:
             self.status.set("Canlı video kapatıldı.")
@@ -643,6 +737,7 @@ class LaneApp(tk.Tk):
         self.is_processing = True
         self.btn_detect.configure(state="disabled")
         self.btn_stop.configure(state="normal")
+        self.video_seek.configure(state="disabled")
         self.progress_percent.set(0)
         self.progress_text.set("Video işleniyor...")
         self.status.set("Video kare kare işleniyor. İşlem sırasında arayüz kullanılabilir.")
@@ -698,6 +793,7 @@ class LaneApp(tk.Tk):
         self.btn_stop.configure(state="disabled")
         if self.current_file is not None and self.current_file.suffix.lower() in VIDEO_EXTENSIONS:
             self.btn_live.configure(state="normal", text="▶ CANLI VİDEOYU BAŞLAT")
+            self.video_seek.configure(state="normal")
 
     def _stop_video(self):
         if self.is_processing:

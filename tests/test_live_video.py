@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 
+import lanevision.anchored_tracking as anchored_tracking
 from lanevision.anchored_tracking import ManualLaneAnchor
 from lanevision.core import LaneSettings
 from lanevision.live_video import LiveVideoSession
@@ -31,8 +32,17 @@ def test_live_session_yields_each_original_frame_with_detection(tmp_path):
     assert session.closed
     assert session.read_next() is None
 
+    # Kare seçicinin verdiği sıfır tabanlı konumdan canlı oynatma devam eder.
+    selected = LiveVideoSession(source, LaneSettings(), mode="classic", start_frame=1)
+    try:
+        first = selected.read_next()
+    finally:
+        selected.close()
+    assert first is not None
+    assert first.index == 2
 
-def test_manual_anchor_keeps_user_lane_types_and_moves_with_frame():
+
+def test_manual_anchor_keeps_user_lane_types_and_moves_with_frame(monkeypatch):
     height, width = 360, 640
     frame = np.full((height, width, 3), 55, np.uint8)
     # Doku, optik akışın kullanıcı çizimini güvenle takip etmesini sağlar.
@@ -60,4 +70,15 @@ def test_manual_anchor_keeps_user_lane_types_and_moves_with_frame():
     assert detection.left[0][0] > left_bottom[0]
     assert detection.right[0][0] > right_bottom[0]
     assert detection.frame.shape == shifted.shape
+
+    # Çizgi anlık olarak örtülürse önceki yol eğrisi en fazla on kare boyunca
+    # kullanılır; böylece model başka bir şeride sıçramaz, ama eski çizgiyi
+    # video boyunca sonsuza dek de uydurmaz.
+    fallback = ManualLaneAnchor(frame, mask, LaneSettings())
+    monkeypatch.setattr(anchored_tracking.cv2, "calcOpticalFlowPyrLK", lambda *args, **kwargs: (None, None, None))
+    blank = np.zeros_like(frame)
+    predicted = [fallback.track(blank) for _ in range(10)]
+    assert all(item is not None for item in predicted)
+    assert all("öngörülü" in item.method for item in predicted)
+    assert fallback.track(blank) is None
 
