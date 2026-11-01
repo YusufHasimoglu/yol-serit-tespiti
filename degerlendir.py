@@ -17,7 +17,14 @@ def main():
     model=AISegmenter(a.weights)
     ious=[]
     for i,(image,label) in enumerate(data):
-        pred=model.probabilities(image)>.70
+        probs=model.probabilities(image)
+        if probs.shape[-1]==4:
+            # Kullanıcının iki kanallı test maskesi için modelin düz/kesik
+            # yanıtlarını aynı sol/sağ şerit alanında birleştir.
+            pred=np.stack([np.maximum(probs[:,:,0],probs[:,:,1]),
+                           np.maximum(probs[:,:,2],probs[:,:,3])],axis=-1)>.70
+        else:
+            pred=probs>.70
         gt=label>127
         inter=np.logical_and(pred,gt).sum(axis=(0,1))
         union=np.logical_or(pred,gt).sum(axis=(0,1))
@@ -26,7 +33,8 @@ def main():
     scores=np.array([[float('nan') if v is None else v for v in row] for row in ious])
     payload={'test_adedi':len(data),'ortalama_sol_iou':float(np.nanmean(scores[:,0])),
              'ortalama_sag_iou':float(np.nanmean(scores[:,1])),
-             'ortalama_iou':float(np.nanmean(scores)), 'goruntu_skorlari':ious}
+             'ortalama_iou':float(np.nanmean(scores)), 'goruntu_skorlari':ious,
+             'model_cikisi':list(model.channel_layout)}
     a.out.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps(payload,ensure_ascii=False,indent=2))
 if __name__=='__main__':main()

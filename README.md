@@ -9,7 +9,7 @@ Python/OpenCV ve PyTorch ile geliştirilmiş Türkçe arayüzlü, araştırma am
 - Fotoğraf ve video açma, sonucu ve ara adımları kaydetme.
 - Gündüz, gece, alacakaranlık ve viraj profili için **görüntüden tahmini sahne analizi**.
 - Sol/sağ sürüş şeridi sınırlarına odaklanan **kesikli ve sürekli çizgi takibi**, eksik kesikli boyanın olası devamını farklı gösterme.
-- U-Net segmentasyon, eğrisel renk takibi, klasik Canny–Hough ve otomatik seçim.
+- Düz/kesik ayrımlı dört kanallı U-Net segmentasyon, eğrisel renk takibi, klasik Canny–Hough ve otomatik seçim.
 - Eğitim, etiketleme, değerlendirme, sentetik veri üretimi ve testler.
 - Haftalık GitHub Actions araştırma eğitim işi; aday ağırlıklar otomatik olarak ana modelin yerine geçirilmez.
 
@@ -47,6 +47,6 @@ python egit_gercek.py --help
 python etiketle.py --help
 ```
 
-Gerçek görüntülerle eğitim için fotoğrafları `data/gercek/images/`, etiket maskelerini `data/gercek/masks/` klasörüne yerleştirin. GitHub'a fotoğrafların ham kopyaları **konulmaz**. `data/gercek/annotations.json` yaklaşık çizgi işaretlerini içerir; bunlar kesin yer gerçeği değildir. Eğitim veri kümesi 5 örnek, ayrı kontrol kümesi 2 örnek içerdiğinden değerlendirme çok sınırlıdır. Denenen yeni U-Net kontrol noktası yeterli ilerleme göstermedi; mevcut model ağırlığı korundu.
+Gerçek görüntülerle eğitim için fotoğrafları `data/gercek/images/`, etiket maskelerini `data/gercek/masks/` klasörüne yerleştirin. GitHub'a fotoğrafların veya üçüncü taraf veri kümelerinin ham kopyaları **konulmaz**. `hazirla_bdd100.py`, resmî BDD100K etiketlerinden düz/kesik sınıfları bulunan 100 farklı video ana karesini yerelde seçer; `egit.py --bdd-root ... --bdd-json ... --bdd-manifest ...` bu karelerle dört kanallı modeli eğitir. Ayrıntılar için eğitim rehberine bakın.
 
 Ayrıntılar: [Kullanım ve arayüz](docs/KULLANIM.md) · [Gerçek veri deneyi](docs/GERCEK_VERI_DENEYI.md) · [AI eğitim rehberi](docs/AI_EGITIM_REHBERI.md) · [Deney planı](docs/DENEY_PLANI.md).

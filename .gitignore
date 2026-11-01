@@ -11,6 +11,9 @@ __pycache__/
 /data/gercek/images/
 /data/gercek/masks/
 /data/gercek/*_review.png
+# Downloaded public datasets, selected-image manifests and extracted video clips
+# are strictly local research inputs.  They must not be pushed to this repository.
+/data/external/
 # Research-only checkpoints and video exports
 /modeller/*candidate.pt
 /modeller/*aday.pt

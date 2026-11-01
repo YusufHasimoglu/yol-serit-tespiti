@@ -2,9 +2,9 @@
 
 ## İçerik ve gerçek durum
 
-Projeye **PyTorch ile eğitilebilen küçük bir U-Net benzeri iki sınıflı segmentasyon modeli** eklendi. İki kanal sırasıyla *sol* ve *sağ* şerit piksellerini gösterir. Varsayılan model dosyası: `modeller/serit_unet_demo.pt`.
+Projede iki uyumlu U-Net biçimi vardır: önceki **iki kanallı** model sol/sağ şerit piksellerini, gerçek BDD100K etiketleriyle eğitilen **dört kanallı** model ise *sol düz*, *sol kesik*, *sağ düz* ve *sağ kesik* olasılıklarını verir. Varsayılan model dosyası: `modeller/serit_unet_demo.pt`.
 
-**Model gerçekten eğitildi**, ancak bu yalnızca **prototip/demonstrasyon** modelidir. 120 sentetik sahne oluşturuldu, bunlardan 18'i ayrı sentetik doğrulama için kullanıldı. Ayrıca kullanıcının arayüz ekran görüntüsünün yalnızca yol bölümü elle çizilmiş kaba etiketle **eğitime** eklendi. Son kaydedilen ağırlıklar 8. turdan, sentetik doğrulama **IoU ≈ 0,6524**. Bu rakam **gerçek yol fotoğraflarında doğruluk değildir**; tek gerçek fotoğraf üzerinde yapılan gösterim eğitim verisi içerdiği için bağımsız test sayılmaz. Model birçok başka yolda hata yapabilir.
+Varsayılan iki kanallı model, prototip/demonstrasyon ağırlığıdır; sentetik doğrulama başarısı gerçek yol doğruluğu değildir. 100 gerçek BDD100K video ana karesiyle dört kanallı düz/kesik aday model de gerçekten eğitildi, ancak bağımsız doğrulama sonucu uygulama için yeterli olmadığından varsayılan modelin yerine geçirilmedi. Ölçümler, veri kapsamı ve video sınırı için [BDD100 eğitim sonucu](BDD100_EGITIM_SONUCU.md) belgesine bakın.
 
 ## 1. Kurulum
 
@@ -59,7 +59,25 @@ CUDA destekli PyTorch sürümü kurulmuşsa otomatik CUDA seçilir, değilse CPU
 
 **Gerçek veriyle yüksek başarı istiyorsanız** en az farklı hava, aydınlatma, viraj ve kamera açılarından, birbirinden farklı yüzlerce doğru etiketlenmiş görüntü toplamanız gerekir. Buradaki sayı deney planı önerisidir, garanti değildir.
 
-## 5. TuSimple etiketli gerçek veri kümesi
+## 5. BDD100K ile düz/kesik gerçek veri eğitimi
+
+BDD100K'nin şerit işaretleme etiketleri paralel şeritler için `laneStyle: solid|dashed` alanını içerir. Görüntü ana karesi, kaynak video klibinin 10. saniyesine karşılık gelir. Önce veriyi resmî kullanım koşullarına uygun biçimde yalnızca yerel diske indirin; ham görüntüleri, videoları ve etiketleri Git'e eklemeyin.
+
+100 farklı kaynak videodan gelen, hem düz hem kesik şerit içeren ana kareleri seçmek için:
+
+```bash
+python hazirla_bdd100.py --labels data/external/bdd100k/labels/100k/train --out data/external/bdd100k/bdd100_manifest.json --count 100
+```
+
+Ardından 80/20 kaynak-kare eğitim/doğrulama bölmesiyle dört kanallı modeli eğitin:
+
+```bash
+python egit.py --synthetic 0 --bdd-root data/external/bdd100k --bdd-json data/external/bdd100k/labels/100k/train --bdd-manifest data/external/bdd100k/bdd100_manifest.json --limit 100 --epochs 18 --batch 4 --out modeller/serit_unet_demo.pt
+```
+
+Bu komuttaki 100 görüntünün her biri farklı BDD100K video klibinin etiketli ana karesidir. Tek-kare U-Net, etiketlenmemiş video karelerini denetimli eğitim örneği saymaz; gerçek video klipleri ayrıca zaman tutarlılığı deneyi için kullanılmalıdır. Eğitim raporundaki doğrulama IoU yalnızca ayrılmış 20 ana kareyi kapsar, sürüş güvenliği garantisi değildir.
+
+## 6. TuSimple konum-etkiletli gerçek veri kümesi
 
 Resmi format, görüntü yolu için `raw_file`, y koordinatları için `h_samples`, her şerit için de x koordinatlarını tutan `lanes` alanlarını kullanır; **-2** o noktada etiket yok demektir.
 
@@ -73,7 +91,7 @@ python egit.py --synthetic 0 --tusimple-root C:/TuSimple --tusimple-json C:/TuSi
 
 TuSimple yükleyici aracın merkezine en yakın sağ/sol iki şeridi basitçe seçer. Yön değiştirme, çok şeritli yol ve hatalı/eksik etiketler için elle kontrol yapın. Resmi `label_data_*.json` sürümünüzün doğru veri yolunu kullanın. **TuSimple verileri ve ağırlıkları proje ZIP'ine dahil değildir.**
 
-## 6. Bağımsız test (IoU)
+## 7. Bağımsız test (IoU)
 
 **Ayrı bir yol/gün/kamera çekiminden** gelen test görüntülerinizi `data/test/images/` ve `data/test/masks/` klasörlerine, yukarıdaki kurallarla kaydedin. Ardından:
 
@@ -83,10 +101,11 @@ python degerlendir.py --folder data/test --weights modeller/serit_unet_demo.pt -
 
 Çıktı: sol IoU, sağ IoU, ortalama IoU. Sınıflar piksel seviyesinde ölçülür; TuSimple'ın resmi şerit başarı metriğine eşdeğer değildir. Sonuçlar ancak **eğitime katılmamış** test setinde raporlanmalıdır.
 
-## 7. Sınırlamalar
+## 8. Sınırlamalar
 
 - Sentetik eğitim görselleri fotogerçekçi değil; bir fotoğrafla aşırı uyum olabilir.
 - Bulanık, gece, yağmur, kar, silinmiş çizgiler veya şerit birleşmelerinde hata olabilir.
 - Merkez sapması yalnızca **piksel** cinsindendir. Kamera kalibrasyonu olmadan metreye çevrilmez.
 - Otomatik modda sonuçta kullanılan gerçek yöntem alt bölümde gösterilir.
+- 100 video ana karesi, farklı koşulları kapsayan başlangıç veri kümesidir; yağmur, gece, silinmiş boya ve Türkiye'ye özgü yol işaretleri için ayrıca bağımsız, doğru etiketli test gerekir.
 - Bu bir **eğitim ve araştırma** yazılımıdır; gerçek araç güvenlik sistemi değildir.

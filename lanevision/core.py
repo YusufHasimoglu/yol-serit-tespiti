@@ -69,6 +69,8 @@ class Detection:
         return {
             "sol_serit": self.left is not None,
             "sag_serit": self.right is not None,
+            "sol_cizgi_tipi": getattr(self, "marking_types", (None, None))[0],
+            "sag_cizgi_tipi": getattr(self, "marking_types", (None, None))[1],
             "iki_serit": self.both_found,
             "merkez_sapmasi_piksel": round(self.offset_px, 2) if self.offset_px is not None else None,
             "gorsel_destek_skoru": round(self.confidence, 3),

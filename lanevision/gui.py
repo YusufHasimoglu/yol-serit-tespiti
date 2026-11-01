@@ -373,8 +373,12 @@ class LaneApp(tk.Tk):
         self._render_preview()
 
     def _set_metrics(self, detection):
-        self.metric_left.set("BULUNDU" if detection.left else "BULUNAMADI")
-        self.metric_right.set("BULUNDU" if detection.right else "BULUNAMADI")
+        marking_types=getattr(detection,"marking_types",(None,None))
+        left_type,right_type=marking_types
+        self.metric_left.set((left_type.upper()+" • BULUNDU") if detection.left and left_type else
+                             ("BULUNDU" if detection.left else "BULUNAMADI"))
+        self.metric_right.set((right_type.upper()+" • BULUNDU") if detection.right and right_type else
+                              ("BULUNDU" if detection.right else "BULUNAMADI"))
         self.metric_offset.set(f"{detection.offset_px:+.1f} px" if detection.offset_px is not None else "ÖLÇÜLEMEDİ")
         self.metric_segments.set(str(detection.segment_count) if detection.segment_count else "—")
         self.algorithm_method.set("Kullanılan yöntem: " + detection.method)

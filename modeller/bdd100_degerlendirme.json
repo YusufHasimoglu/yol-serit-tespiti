@@ -1,0 +1,91 @@
+{
+  "validation_images": 28,
+  "channel_layout": [
+    "left_solid",
+    "left_dashed",
+    "right_solid",
+    "right_dashed"
+  ],
+  "threshold_results": [
+    {
+      "threshold": 0.05,
+      "mean_iou": 0.006,
+      "per_channel_iou": [
+        0.005,
+        0.0078,
+        0.006,
+        0.005
+      ]
+    },
+    {
+      "threshold": 0.1,
+      "mean_iou": 0.006,
+      "per_channel_iou": [
+        0.005,
+        0.0078,
+        0.0061,
+        0.005
+      ]
+    },
+    {
+      "threshold": 0.2,
+      "mean_iou": 0.006,
+      "per_channel_iou": [
+        0.0051,
+        0.0078,
+        0.0061,
+        0.005
+      ]
+    },
+    {
+      "threshold": 0.3,
+      "mean_iou": 0.0129,
+      "per_channel_iou": [
+        0.0051,
+        0.0101,
+        0.0105,
+        0.026
+      ]
+    },
+    {
+      "threshold": 0.42,
+      "mean_iou": 0.0508,
+      "per_channel_iou": [
+        0.0075,
+        0.0515,
+        0.0894,
+        0.0547
+      ]
+    },
+    {
+      "threshold": 0.55,
+      "mean_iou": 0.1026,
+      "per_channel_iou": [
+        0.1322,
+        0.0275,
+        0.1519,
+        0.0988
+      ]
+    },
+    {
+      "threshold": 0.7,
+      "mean_iou": 0.1266,
+      "per_channel_iou": [
+        0.1742,
+        0.0,
+        0.2016,
+        0.1304
+      ]
+    }
+  ],
+  "best": {
+    "threshold": 0.7,
+    "mean_iou": 0.1266,
+    "per_channel_iou": [
+      0.1742,
+      0.0,
+      0.2016,
+      0.1304
+    ]
+  }
+}

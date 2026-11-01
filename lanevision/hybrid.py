@@ -193,4 +193,8 @@ def detect_hybrid(frame: np.ndarray, settings: LaneSettings | None = None, mask_
               '05 ROI maskesi': roi, '06 ROI kenarlari': candidate,
               '07 Hough dogrulari': cv2.cvtColor(candidate, cv2.COLOR_GRAY2BGR),
               '08 Sonuc': output}
-    return Detection(output, stages, l, r, offset, float(l is not None)*.5+float(r is not None)*.5, 0)
+    result=Detection(output, stages, l, r, offset, float(l is not None)*.5+float(r is not None)*.5, 0)
+    # Retain the fitted paths so automatic mode can reject a pair that crosses
+    # through the road before presenting it as a shaded lane.
+    result.lane_polynomials=(left,right)
+    return result

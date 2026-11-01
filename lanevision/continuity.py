@@ -41,6 +41,81 @@ def _peaks(mask,y,step=7):
     return found
 
 
+def _marking_metrics(mask,item):
+    """Measure paint/gap runs along a fitted curve.
+
+    Track points are sampled every seven pixels and may jump over a dash gap.
+    They are suitable for curve fitting but not for deciding whether paint is
+    dashed.  Here the *raw paint mask* is sampled row-by-row along the fitted
+    curve, preserving the physical gaps that distinguish a dashed divider
+    from a continuous edge line.
+    """
+    h,w=mask.shape
+    low,high=item['span']
+    yy=np.arange(max(0,low),min(h-1,high)+1)
+    xx=np.rint(np.polyval(item['poly'],yy)).astype(np.int32)
+    valid=(xx>=0)&(xx<w)
+    yy,xx=yy[valid],xx[valid]
+    if len(yy)<8:
+        return {'marking':'belirsiz','dashed_score':0.,'solid_score':0.,'coverage':0.}
+    # Horizontal tolerance covers curve-fit rounding without vertically
+    # bridging natural gaps between dash segments.
+    nearby=cv2.dilate(mask,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(7,3)))
+    observed=nearby[yy,xx]>0
+    coverage=float(observed.mean())
+    transitions=np.flatnonzero(np.diff(observed.astype(np.int8))!=0)+1
+    runs=np.split(np.arange(len(observed)),transitions)
+    gap_min=max(6,int(h*.018))
+    long_gaps=[len(run) for run in runs if not observed[run[0]] and len(run)>=gap_min]
+    gap_count=len(long_gaps)
+    gap_fraction=float(sum(long_gaps)/max(1,len(observed)))
+    dashed_score=float(np.clip(.18*(1-coverage)+.64*min(1.,gap_count/2.)
+                                      +.55*min(1.,gap_fraction/.18),0.,1.))
+    solid_score=float(np.clip(coverage*(1-.75*min(1.,gap_count/2.))+.05,0.,1.))
+    marking='kesik' if dashed_score>=.45 and dashed_score>.75*solid_score else 'duz'
+    return {'marking':marking,'dashed_score':dashed_score,'solid_score':solid_score,
+            'coverage':coverage,'dash_gap_count':gap_count}
+
+
+def _apply_ai_style(item, probabilities, channel_layout, side):
+    """Fuse a 4-channel learned style estimate into a physical paint track.
+
+    The network is allowed to distinguish solid/dashed only along a candidate
+    that has already been supported by real paint pixels.  This avoids turning
+    a bright guardrail or a hallucinated segmentation blob into a lane merely
+    because a neural score is high.
+    """
+    if item is None or probabilities is None or probabilities.ndim!=3:
+        return
+    layout=tuple(channel_layout or ())
+    wanted=(f'{side}_solid',f'{side}_dashed')
+    if not all(name in layout for name in wanted):
+        return
+    solid_ch,dashed_ch=(layout.index(name) for name in wanted)
+    h,w=probabilities.shape[:2]
+    lo,hi=item['span'];yy=np.arange(max(0,lo),min(h-1,hi)+1)
+    xx=np.rint(np.polyval(item['poly'],yy)).astype(np.int32)
+    valid=(xx>=0)&(xx<w)
+    if valid.sum()<8:
+        return
+    yy,xx=yy[valid],xx[valid]
+    # A small cross-track maximum tolerates sub-pixel curve fitting error.
+    solid=cv2.dilate(probabilities[:,:,solid_ch],np.ones((3,5),np.uint8))[yy,xx]
+    dashed=cv2.dilate(probabilities[:,:,dashed_ch],np.ones((3,5),np.uint8))[yy,xx]
+    solid_score=float(np.mean(solid));dashed_score=float(np.mean(dashed))
+    item['ai_solid_score']=solid_score;item['ai_dashed_score']=dashed_score
+    if max(solid_score,dashed_score)<.20 or abs(solid_score-dashed_score)<.055:
+        return
+    # The learned type can correct a raw-gap misread, but cannot erase strong
+    # visual evidence without a clear margin.  Scores are kept for diagnostic
+    # use and pair ranking below.
+    native_solid=float(item.get('solid_score',0.));native_dashed=float(item.get('dashed_score',0.))
+    fused_solid=.46*native_solid+.54*solid_score
+    fused_dashed=.46*native_dashed+.54*dashed_score
+    item['solid_score']=fused_solid;item['dashed_score']=fused_dashed
+    item['marking']='kesik' if fused_dashed>fused_solid else 'duz'
+
+
 def _fit_track(rows,seed_x,seed_y,side,w,h):
     """Dynamic local color peaks with unobserved bands bridged, not painted."""
     # first find path upward (gaps allowed), then downward
@@ -130,6 +205,7 @@ def _candidates(mask,side):
     for x,y,_ in selected:
         item=_fit_track(rows,x,y,side,w,h)
         if item is None:continue
+        item.update(_marking_metrics(mask,item))
         if any(abs(item['ref_x']-v['ref_x'])<.035 and abs(item['score']-v['score'])<20 for v in tracks):continue
         tracks.append(item)
     tracks.sort(key=lambda q:-q['score'])
@@ -137,27 +213,85 @@ def _candidates(mask,side):
 
 
 def _pair(lefts,rights,h,w):
+    """Select the lane around the camera, not merely the brightest two traces.
+
+    Road furniture (especially a sunlit guardrail) often produces a much
+    stronger colour response than worn lane paint.  A valid ego-lane pair must
+    therefore have a plausible width at the near and far ends *and* keep its
+    centre close enough to the camera projection.  The previous score mostly
+    rewarded paint support, which made a centre marking + guardrail pair win
+    on real multi-lane roads.
+    """
     picks=[]
+    has_dashed_left=any(item.get('dashed_score',0.)>=.45 for item in lefts)
+    has_solid_right=any(item.get('solid_score',0.)>=.45 for item in rights)
     for left in lefts:
         for right in rights:
             ylow=max(left['span'][0],right['span'][0]);yhigh=min(left['span'][1],right['span'][1])
             if yhigh-ylow<.12*h:continue
-            yy=np.linspace(ylow,yhigh,11)
+            yy=np.linspace(ylow,yhigh,15)
             lx=np.polyval(left['poly'],yy);rx=np.polyval(right['poly'],yy)
             widths=(rx-lx)/w
-            if np.any(widths<.09) or np.any(widths>1.):continue
-            # Road should narrow toward vanishing point (upward), except severe curve.
-            narrow=widths[0];wide=widths[-1]
-            if wide < narrow*.68:continue
-            score=left['score']+right['score']+24*(yhigh-ylow)/h - 15*abs(wide-.43)
+            # A centre dash and road edge naturally meet near the vanishing
+            # point.  Tiny negative values there come from independent curve
+            # fits, not a crossing at the near (drivable) part of the road.
+            if np.any(widths<-.025) or np.any(widths>1.):continue
+            positive_widths=widths[widths>.02]
+            if len(positive_widths)<len(widths)*.75:continue
+            # Perspective: the same lane becomes narrower toward the horizon.
+            far_width=float(max(.02,np.percentile(positive_widths,20)))
+            near_width=float(widths[-1])
+            near_center=float((lx[-1]+rx[-1])/(2*w))
+            if not (.15<=near_width<=.64):continue
+            if not (.035<=far_width<=min(.48,near_width*.98)):continue
+            if near_width < far_width*1.05:continue
+            # The selected pair is the ego lane: it should contain the camera
+            # projection near the bottom.  This rejects an adjacent lane made
+            # of a centre dash and a bright shoulder/guardrail.
+            # A dashcam can be mounted noticeably off-centre, so this remains
+            # deliberately broad.  Pair ranking below, rather than a hard
+            # centre cut-off, decides between a real edge and a bright rail.
+            if not (.24<=near_center<=.76):continue
+            if lx[-1] > w*.62 or rx[-1] < w*.38:continue
+            # A lane width must change smoothly.  Sudden widening is typical
+            # of a track jumping from paint to a guardrail.
+            if float(np.max(np.abs(np.diff(widths))))>.12:continue
+            extent=(yhigh-ylow)/h
+            # A camera may sit off-centre, while an implausibly broad road
+            # pair is a much stronger signal of a curb/guardrail selection.
+            # Prefer the common dashed-divider + solid-edge lane width.
+            shape_error=(.9*abs(near_center-.50)+3.0*abs(near_width-.34)
+                         +.7*abs(far_width/max(near_width,.01)-.42))
+            # Paint strength alone must not make a guardrail win; geometric
+            # consistency is intentionally the dominant tie-breaker.
+            # The target pair is normally a dashed centre divider (left) and
+            # a solid shoulder/edge line (right).  This preference recreates
+            # the successful fourth example while still allowing solid-solid
+            # roads when no dashed divider is present.
+            style_match=left.get('dashed_score',0.)*right.get('solid_score',0.)
+            reversed_style=left.get('solid_score',0.)*right.get('dashed_score',0.)
+            both_dashed=left.get('dashed_score',0.)*right.get('dashed_score',0.)
+            if has_dashed_left and has_solid_right:
+                # When the image contains the desired dashed/solid structure,
+                # do not let a brighter outside solid edge win the pair.
+                style_bonus=145*style_match-65*reversed_style-38*both_dashed-34*(1-style_match)
+            else:
+                style_bonus=48*style_match-20*reversed_style-14*both_dashed
+            score=left['score']+right['score']+24*extent-190*shape_error+style_bonus
             picks.append((score,left,right))
     if picks:
         _,left,right=max(picks,key=lambda x:x[0]);return left,right
-    return (lefts[0] if lefts and lefts[0]['score']>12 else None,
-            rights[0] if rights and rights[0]['score']>12 else None)
+    # Never combine the independent best candidates when no geometrically
+    # valid pair exists: that exact fallback was how a centre dash and a
+    # guardrail could be reported as two confident lane boundaries.
+    best_left=lefts[0] if lefts and lefts[0]['score']>12 else None
+    best_right=rights[0] if rights and rights[0]['score']>12 else None
+    if best_left is not None and (best_right is None or best_left['score']>=best_right['score']):
+        return best_left,None
+    return None,best_right
 
 
-def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None):
+def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None,channel_layout=None):
     if frame is None or frame.ndim!=3 or min(frame.shape[:2])<100:raise ValueError('BGR resim (en az 100x100) gerekli')
     s=settings or LaneSettings();s.validate()
     h,w=frame.shape[:2]
@@ -171,13 +305,26 @@ def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None):
     raw=cv2.bitwise_and(raw,road)
     if probabilities is not None:
         prob=cv2.resize(probabilities,(tw,th))
-        for ch in range(min(2,prob.shape[-1])):
-            # AI only helps locate paint-colored candidate pixels; cannot override
-            # zero physical lane evidence in this experimental tracing mode.
-            confidence=((prob[:,:,ch]>.55)&(raw>0)).astype(np.uint8)*255
-            raw=cv2.bitwise_or(raw,confidence)
+        # AI only helps locate paint-colored candidate pixels; it cannot
+        # override zero physical lane evidence in this experimental tracer.
+        confidence=((np.max(prob,axis=-1)>.55)&(raw>0)).astype(np.uint8)*255
+        raw=cv2.bitwise_or(raw,confidence)
     lefts=_candidates(raw,'left');rights=_candidates(raw,'right')
+    if probabilities is not None:
+        for item in lefts:
+            _apply_ai_style(item,prob,channel_layout,'left')
+        for item in rights:
+            _apply_ai_style(item,prob,channel_layout,'right')
     left,right=_pair(lefts,rights,th,tw)
+    # The requested target is a dashed centre divider plus a continuous road
+    # edge.  Do not shade a reversed or dashed/dashed pair as a confident
+    # driving lane; retain the stronger single trace instead.
+    if left is not None and right is not None:
+        left_style,right_style=left.get('marking'),right.get('marking')
+        if left_style=='duz' and right_style=='kesik':
+            left,right=(left,None) if left['score']>=right['score'] else (None,right)
+        elif left_style=='kesik' and right_style=='kesik':
+            left,right=(left,None) if left['score']>=right['score'] else (None,right)
     output=frame.copy();overlay=np.zeros_like(frame)
     sx=w/tw;sy=h/th
     def bounds(item):
@@ -192,8 +339,31 @@ def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None):
         if len(xx)<5:return None
         return np.column_stack([np.round(xx*sx),np.round(ys*sy)]).astype(np.int32)
     lp,rp=bounds(left),bounds(right)
+    observed_mask=cv2.resize(raw,(w,h),interpolation=cv2.INTER_NEAREST)
+    # A small dilation absorbs resize/fit rounding but does not turn a long
+    # unobserved curve into measured road paint.
+    observed_mask=cv2.dilate(observed_mask,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(5,5)))
+
+    def observed_points(pts):
+        if pts is None:return None
+        yy=np.clip(pts[:,1],0,h-1);xx=np.clip(pts[:,0],0,w-1)
+        return observed_mask[yy,xx]>0
+
+    left_observed,right_observed=observed_points(lp),observed_points(rp)
     offset=None
-    if lp is not None and rp is not None:
+    # Do not present a filled lane when one of its boundaries is almost wholly
+    # extrapolated.  It is safer to show an incomplete result than a confident
+    # but shifted green polygon.
+    def evidence_threshold(item):
+        # A dashed boundary is deliberately absent between paint segments;
+        # requiring the same dense support as a continuous edge prevents a
+        # perfectly valid dashed/solid lane from being shaded.
+        return .11 if item is not None and item.get('marking')=='kesik' else .18
+
+    enough_evidence=(left_observed is not None and right_observed is not None
+                     and left_observed.mean()>=evidence_threshold(left)
+                     and right_observed.mean()>=evidence_threshold(right))
+    if lp is not None and rp is not None and enough_evidence:
         y0=max(lp[0,1],rp[0,1]);y1=min(lp[-1,1],rp[-1,1]);ys=np.arange(y0,y1+1,4)
         if len(ys)>8:
             lx=np.polyval(left['poly'],ys/sy)*sx;rx=np.polyval(right['poly'],ys/sy)*sx
@@ -203,27 +373,42 @@ def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None):
                 cv2.fillPoly(overlay,[poly],(70,177,105))
                 offset=(w/2-(lx[good][-1]+rx[good][-1])/2)
     output=cv2.addWeighted(output,1,overlay,s.overlay_alpha,0)
-    for item,pts in ((left,lp),(right,rp)):
-        if item is None or pts is None:continue
-        # Model estimate is shown as orange dashed centerline, observed pixels as solid cyan.
-        # We draw estimated geometry in 12px segments, so a gap is not confused
-        # with actually detected road paint.
-        for j in range(0,len(pts)-3,7):
-            cv2.polylines(output,[pts[j:j+4]],False,(32,176,255),max(2,s.line_thickness-2),cv2.LINE_AA)
-        local=cv2.resize(raw,(w,h),interpolation=cv2.INTER_NEAREST)
-        yy=pts[:,1];xx=pts[:,0]
-        evidence=(local[yy,xx]>0)
-        for j in range(len(pts)-1):
-            if evidence[j] and evidence[j+1]:
-                cv2.line(output,tuple(pts[j]),tuple(pts[j+1]),(255,223,30),max(2,s.line_thickness-2),cv2.LINE_AA)
+    for item,pts,evidence in ((left,lp,left_observed),(right,rp,right_observed)):
+        if item is None or pts is None or evidence is None:continue
+        # Kesik çizgi turuncu, düz çizgi turkuaz gösterilir. Böylece ekrandaki
+        # iki sınırın türü, taranan alanla birlikte doğrudan anlaşılır.
+        is_dashed=item.get('marking')=='kesik'
+        measured_color=(0,176,255) if is_dashed else (255,223,30)
+        bridge_color=(0,132,210) if is_dashed else (220,180,20)
+        measured=np.flatnonzero(evidence)
+        if not len(measured):continue
+        groups=np.split(measured,np.where(np.diff(measured)>1)[0]+1)
+        for group in groups:
+            if len(group)>=2:
+                cv2.polylines(output,[pts[group]],False,measured_color,max(2,s.line_thickness-2),cv2.LINE_AA)
+        # Natural dashed gaps are intentionally left open.  A continuous
+        # marking may receive a short bridge only where an observed highlight
+        # or shadow interrupted otherwise adjacent evidence.
+        if is_dashed:continue
+        max_bridge=max(4,int(h*.045/2))
+        for first,second in zip(groups,groups[1:]):
+            start,end=int(first[-1]),int(second[0])
+            if end-start>max_bridge:continue
+            for j in range(start,end-1,3):
+                cv2.line(output,tuple(pts[j]),tuple(pts[min(j+1,end)]),
+                         bridge_color,max(2,s.line_thickness-2),cv2.LINE_AA)
     def endpoints(pts):
         return (tuple(map(int,pts[-1])),tuple(map(int,pts[0]))) if pts is not None else None
     l,r=endpoints(lp),endpoints(rp)
-    cv2.rectangle(output,(8,7),(min(w-5,560),48),(17,29,42),-1)
-    cv2.putText(output,f"SOL: {'VAR' if l else 'YOK'}  SAG: {'VAR' if r else 'YOK'} | DEVAMLILIK",(17,34),cv2.FONT_HERSHEY_SIMPLEX,.62,(241,249,255),2,cv2.LINE_AA)
+    left_type=left.get('marking','belirsiz').upper() if left else 'YOK'
+    right_type=right.get('marking','belirsiz').upper() if right else 'YOK'
+    area='TARALI' if offset is not None else 'TARANMADI'
+    cv2.rectangle(output,(8,7),(min(w-5,650),48),(17,29,42),-1)
+    cv2.putText(output,f"SOL: {left_type}  SAG: {right_type} | {area}",(17,34),cv2.FONT_HERSHEY_SIMPLEX,.62,(241,249,255),2,cv2.LINE_AA)
     stages={'01 Orijinal':frame.copy(),'06 ROI kenarlari':cv2.resize(raw,(w,h)),'08 Sonuc':output}
     count=(left['samples'] if left else 0)+(right['samples'] if right else 0)
     det=Detection(output,stages,l,r,offset,float(bool(l))*min(1,count/50)*.5+float(bool(r))*min(1,count/50)*.5,count)
-    det.method='Parca-eslemeli egrisel takip (tahmini bosluklar kesikli)'
+    det.method='Kesik-düz eşlemeli şerit takibi'
     det.lane_polynomials=(left,right)
+    det.marking_types=(left.get('marking') if left else None,right.get('marking') if right else None)
     return det

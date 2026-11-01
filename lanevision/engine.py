@@ -12,6 +12,51 @@ MODES={'auto':'Akıllı otomatik (gece / viraj / AI)', 'ai':'Yapay zekâ (U-Net)
        'hybrid':'Gelişmiş eğrisel takip', 'continuity':'Kesikli ve sürekli şerit takibi', 'classic':'Klasik Canny + Hough'}
 
 
+def _curves_keep_order(result,width,height):
+    """Reject a fitted pair that crosses inside its observed image range."""
+    pair=getattr(result,'lane_polynomials',None)
+    if not pair or len(pair)!=2 or pair[0] is None or pair[1] is None:
+        return True
+
+    def model(item):
+        if isinstance(item,dict):
+            # Continuity candidates are already validated in their resized
+            # coordinate system.  Hybrid candidates retain a source-sized
+            # curve and coefficients and can be checked here.
+            if 'curve' not in item or 'coeffs' not in item:return None
+            return item['curve'],item['coeffs']
+        if isinstance(item,tuple) and len(item)==2:return item
+        return None
+
+    left,right=model(pair[0]),model(pair[1])
+    if left is None or right is None:return True
+    left_points,left_poly=left;right_points,right_poly=right
+    if len(left_points)<3 or len(right_points)<3:return False
+    low=max(float(np.min(left_points[:,1])),float(np.min(right_points[:,1])))
+    high=min(float(np.max(left_points[:,1])),float(np.max(right_points[:,1])))
+    if high-low<height*.10:return False
+    ys=np.linspace(low,high,17)
+    widths=np.polyval(right_poly,ys)-np.polyval(left_poly,ys)
+    # A vanishing point may make the far end narrow, but neither curves may
+    # cross or leap into the neighbouring lane in the usable road area.
+    if np.count_nonzero(widths>max(5.,width*.018))<len(widths)*.82:return False
+    if not width*.07<=float(np.median(widths))<=width*.78:return False
+    if float(widths[-1])<width*.11:return False
+    return True
+
+
+def _unknown_detection(frame):
+    """Prefer an explicit uncertain result over a visually unrelated overlay."""
+    output=frame.copy()
+    h,w=frame.shape[:2]
+    cv2.rectangle(output,(8,7),(min(w-5,620),47),(18,28,44),-1)
+    cv2.putText(output,'GUVENILIR SERIT CIFTI BULUNAMADI',(17,34),cv2.FONT_HERSHEY_SIMPLEX,
+                .62,(242,249,255),2,cv2.LINE_AA)
+    result=Detection(output,{'01 Orijinal':frame.copy(),'08 Sonuc':output},None,None,None,0.,0)
+    result.method='Belirsiz - güvenilir şerit çifti yok'
+    return result
+
+
 def _fit_mask(mask:np.ndarray,side:str):
     h,w=mask.shape
     # Yanlış pozitifleri azalt: küçücük bileşenleri kaldır ve çizgiyi sınıfa göre ara.
@@ -68,12 +113,35 @@ def _fit_mask(mask:np.ndarray,side:str):
 def detect_ai(frame,settings,segmenter):
     masks,probs=segmenter.masks(frame)
     h,w=frame.shape[:2]
-    detected=[_fit_mask(masks[0],'left'),_fit_mask(masks[1],'right')]
+    style_aware=(getattr(segmenter,'output_channels',2)==4)
+    if style_aware:
+        # Four channels: sol-düz, sol-kesik, sağ-düz, sağ-kesik.
+        left_mask=cv2.bitwise_or(masks[0],masks[1])
+        right_mask=cv2.bitwise_or(masks[2],masks[3])
+    else:
+        left_mask,right_mask=masks[0],masks[1]
+    detected=[_fit_mask(left_mask,'left'),_fit_mask(right_mask,'right')]
     # Modelin belirsiz olduğu yerleri gerçek çizgi diye göstermeyelim.
     output=frame.copy();overlay=np.zeros_like(frame)
     left,right=detected
     offset=None
-    if left is not None and right is not None:
+    def marking_type(item,side):
+        if item is None:
+            return None
+        if not style_aware:
+            return 'belirsiz'
+        solid_idx,dashed_idx=(0,1) if side=='left' else (2,3)
+        points=item[0]
+        yy=np.clip(points[:,1],0,h-1);xx=np.clip(points[:,0],0,w-1)
+        solid=float(np.mean(probs[yy,xx,solid_idx]));dashed=float(np.mean(probs[yy,xx,dashed_idx]))
+        # The visual model contributes only when it has actual evidence.  A
+        # close score is safer as "belirsiz" than a fabricated line type.
+        if max(solid,dashed)<.18 or abs(solid-dashed)<.055:
+            return 'belirsiz'
+        return 'kesik' if dashed>solid else 'duz'
+
+    left_type,right_type=marking_type(left,'left'),marking_type(right,'right')
+    if left is not None and right is not None and (left_type,right_type) not in {('duz','kesik'),('kesik','kesik')}:
         ya=max(left[0][0,1],right[0][0,1]);yb=min(left[0][-1,1],right[0][-1,1])
         if yb>ya+20:
             ys=np.arange(ya,yb+1,4);lx=np.polyval(left[1],ys);rx=np.polyval(right[1],ys)
@@ -84,20 +152,37 @@ def detect_ai(frame,settings,segmenter):
                 cv2.fillPoly(overlay,[np.vstack([lp,rp[::-1]])],(68,182,97))
                 offset=w/2-float((lp[-1,0]+rp[-1,0])/2)
     output=cv2.addWeighted(output,1.,overlay,settings.overlay_alpha,0)
-    for item in (left,right):
-        if item is not None:cv2.polylines(output,[item[0]],False,(0,225,255),settings.line_thickness,cv2.LINE_AA)
+    for item,kind in ((left,left_type),(right,right_type)):
+        if item is not None:
+            color=(0,176,255) if kind=='kesik' else ((255,223,30) if kind=='duz' else (0,225,255))
+            cv2.polylines(output,[item[0]],False,color,settings.line_thickness,cv2.LINE_AA)
     def ends(obj):
         return (tuple(map(int,obj[0][-1])),tuple(map(int,obj[0][0]))) if obj is not None else None
     le,re=ends(left),ends(right)
     cv2.rectangle(output,(8,7),(min(w-5,520),47),(18,28,44),-1)
-    cv2.putText(output,f"SOL: {'VAR' if le else 'YOK'}  SAG: {'VAR' if re else 'YOK'} | U-NET",
+    def label(kind,end):
+        return (kind.upper() if kind and kind!='belirsiz' else ('VAR' if end else 'YOK'))
+    cv2.putText(output,f"SOL: {label(left_type,le)}  SAG: {label(right_type,re)} | U-NET",
                 (17,34),cv2.FONT_HERSHEY_SIMPLEX,.65,(242,249,255),2,cv2.LINE_AA)
-    mask_viz=np.zeros_like(frame);mask_viz[:,:,2]=masks[0];mask_viz[:,:,1]=masks[1]
-    prob_viz=np.zeros_like(frame);prob_viz[:,:,2]=(probs[:,:,0]*255).astype('uint8');prob_viz[:,:,1]=(probs[:,:,1]*255).astype('uint8')
+    mask_viz=np.zeros_like(frame);prob_viz=np.zeros_like(frame)
+    if style_aware:
+        # Turkuaz=düz, turuncu=kesik; sol/sağ bilgisi modelin kanal
+        # düzeninde korunur, görsel ise türleri anlaşılır kılmaya odaklanır.
+        mask_viz[:,:,1]=np.maximum(masks[0],masks[2]);mask_viz[:,:,0]=np.maximum(masks[0],masks[2])
+        mask_viz[:,:,2]=np.maximum(masks[1],masks[3]);mask_viz[:,:,1]=np.maximum(mask_viz[:,:,1],np.maximum(masks[1],masks[3])//2)
+        solid=np.maximum(probs[:,:,0],probs[:,:,2]);dashed=np.maximum(probs[:,:,1],probs[:,:,3])
+        prob_viz[:,:,1]=(solid*255).astype('uint8');prob_viz[:,:,0]=(solid*255).astype('uint8')
+        prob_viz[:,:,2]=(dashed*255).astype('uint8');prob_viz[:,:,1]=np.maximum(prob_viz[:,:,1],(dashed*127).astype('uint8'))
+    else:
+        mask_viz[:,:,2]=masks[0];mask_viz[:,:,1]=masks[1]
+        prob_viz[:,:,2]=(probs[:,:,0]*255).astype('uint8');prob_viz[:,:,1]=(probs[:,:,1]*255).astype('uint8')
     stages={'01 Orijinal':frame.copy(),'08 Sonuc':output,'09 AI olasilik haritasi':prob_viz,'10 AI sinif maskeleri':mask_viz}
     det=Detection(output,stages,le,re,offset,float(le is not None)*.5+float(re is not None)*.5,0)
     det.method='Yapay zekâ (U-Net)'
     det.lane_polynomials=(left,right)
+    det.marking_types=(left_type,right_type)
+    det.ai_probabilities=probs
+    det.ai_channel_layout=getattr(segmenter,'channel_layout',('left','right'))
     return det
 
 
@@ -152,17 +237,27 @@ class InferenceEngine:
             (rbottom,_),(rtop,_) = obj.right
             w,h=frame.shape[1],frame.shape[0]
             # Yanlış şerit geçişi, olası bariyer ve aşırı geniş şeritleri ele.
-            if lbottom>=rbottom or ltop>=rtop:return False
+            if lbottom>=rbottom:return False
+            marking_types=getattr(obj,'marking_types',None)
+            # A dashed divider and a road edge genuinely converge at the
+            # horizon.  Their independently fitted curves can cross by a few
+            # pixels there, although the measured near-road region is ordered.
+            if marking_types==('kesik','duz'):
+                if ltop>rtop+w*.05:return False
+            elif ltop>=rtop:return False
             width=(rbottom-lbottom)/w
             if not .08 <= width <= .92:return False
             for line in (obj.left,obj.right):
                 (xb,yb),(xt,yt)=line
                 if abs(xb-xt)>3.4*max(1,abs(yb-yt)):return False
+            if not _curves_keep_order(obj,w,h):return False
             return True
 
         # Current strategy: prioritize the ego lane's center dividing paint + road edge.
         # The trace avoids silently substituting a left-side guardrail as a lane.
-        continuous=detect_continuous(frame,self.settings)
+        continuous=detect_continuous(frame,self.settings,
+                                     probabilities=(getattr(ai,'ai_probabilities',None) if ai is not None else None),
+                                     channel_layout=(getattr(ai,'ai_channel_layout',None) if ai is not None else None))
         if plausible(continuous):
             continuous.method='Ego-şerit devamlılık analizi'
             if ai is not None:
@@ -201,7 +296,12 @@ class InferenceEngine:
         # tek çizgili klasik Hough'a tercih et.
         classic=self.classic.detect(frame,video)
         classic.method='Klasik Hough (son yedek)'
-        candidates=[c for c in (ai,continuous,color,classic) if c is not None]
+        candidates=[c for c in (ai,continuous,color,classic) if c is not None and plausible(c)]
+        if not candidates:
+            unknown=_unknown_detection(frame)
+            if ai is not None:
+                unknown.stages.update({k:v for k,v in ai.stages.items() if k.startswith(('09','10'))})
+            return attach(unknown)
         if scene.geometry=='viraj' or scene.lighting=='gece':
             weight={id(ai):.2} if ai is not None else {}
             weight[id(color)]=.06
