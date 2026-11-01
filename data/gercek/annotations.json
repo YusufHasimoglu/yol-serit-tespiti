@@ -1,0 +1,453 @@
+[
+  {
+    "name": "otoyol_viraj",
+    "source": "user supplied",
+    "left_points_normalized": [
+      [
+        0.48,
+        0.55
+      ],
+      [
+        0.481,
+        0.63
+      ],
+      [
+        0.481,
+        0.73
+      ],
+      [
+        0.477,
+        0.86
+      ],
+      [
+        0.474,
+        0.91
+      ]
+    ],
+    "right_points_normalized": [
+      [
+        0.501,
+        0.55
+      ],
+      [
+        0.596,
+        0.64
+      ],
+      [
+        0.71,
+        0.74
+      ],
+      [
+        0.844,
+        0.865
+      ],
+      [
+        1.0,
+        0.993
+      ]
+    ],
+    "left_dashed_intervals": [
+      [
+        0.591,
+        0.607
+      ],
+      [
+        0.645,
+        0.69
+      ],
+      [
+        0.727,
+        0.77
+      ],
+      [
+        0.82,
+        0.9
+      ]
+    ],
+    "split": "train",
+    "note": "Manual approximate path annotations; review before research benchmarks. The gaps of a dashed line are not marked as actual paint."
+  },
+  {
+    "name": "kirsal_viraj",
+    "source": "user supplied",
+    "left_points_normalized": [
+      [
+        0.61,
+        0.655
+      ],
+      [
+        0.56,
+        0.674
+      ],
+      [
+        0.514,
+        0.695
+      ],
+      [
+        0.496,
+        0.748
+      ],
+      [
+        0.493,
+        0.845
+      ],
+      [
+        0.494,
+        0.87
+      ]
+    ],
+    "right_points_normalized": [
+      [
+        0.61,
+        0.655
+      ],
+      [
+        0.67,
+        0.72
+      ],
+      [
+        0.8,
+        0.785
+      ],
+      [
+        1.0,
+        0.87
+      ]
+    ],
+    "left_dashed_intervals": [
+      [
+        0.728,
+        0.756
+      ],
+      [
+        0.77,
+        0.797
+      ],
+      [
+        0.83,
+        0.87
+      ]
+    ],
+    "split": "train",
+    "note": "Manual approximate path annotations; review before research benchmarks. The gaps of a dashed line are not marked as actual paint."
+  },
+  {
+    "name": "dag_viraj",
+    "source": "user supplied",
+    "left_points_normalized": [
+      [
+        0.57,
+        0.52
+      ],
+      [
+        0.514,
+        0.55
+      ],
+      [
+        0.5,
+        0.6
+      ],
+      [
+        0.506,
+        0.68
+      ],
+      [
+        0.54,
+        0.83
+      ],
+      [
+        0.556,
+        0.998
+      ]
+    ],
+    "right_points_normalized": [
+      [
+        0.7,
+        0.515
+      ],
+      [
+        0.636,
+        0.558
+      ],
+      [
+        0.65,
+        0.585
+      ],
+      [
+        0.74,
+        0.635
+      ],
+      [
+        0.89,
+        0.69
+      ],
+      [
+        1.02,
+        0.728
+      ]
+    ],
+    "left_dashed_intervals": [
+      [
+        0.56,
+        0.595
+      ],
+      [
+        0.63,
+        0.673
+      ],
+      [
+        0.705,
+        0.755
+      ],
+      [
+        0.81,
+        0.866
+      ],
+      [
+        0.935,
+        0.999
+      ]
+    ],
+    "split": "train",
+    "note": "Manual approximate path annotations; review before research benchmarks. The gaps of a dashed line are not marked as actual paint."
+  },
+  {
+    "name": "filigranli_viraj",
+    "source": "user supplied",
+    "left_points_normalized": [
+      [
+        0.545,
+        0.5
+      ],
+      [
+        0.535,
+        0.57
+      ],
+      [
+        0.565,
+        0.71
+      ],
+      [
+        0.6,
+        0.91
+      ],
+      [
+        0.61,
+        0.998
+      ]
+    ],
+    "right_points_normalized": [
+      [
+        0.58,
+        0.5
+      ],
+      [
+        0.7,
+        0.66
+      ],
+      [
+        0.83,
+        0.81
+      ],
+      [
+        1.02,
+        0.99
+      ]
+    ],
+    "left_dashed_intervals": [
+      [
+        0.53,
+        0.57
+      ],
+      [
+        0.62,
+        0.7
+      ],
+      [
+        0.76,
+        0.85
+      ],
+      [
+        0.91,
+        1
+      ]
+    ],
+    "split": "holdout",
+    "note": "Manual approximate path annotations; review before research benchmarks. The gaps of a dashed line are not marked as actual paint."
+  },
+  {
+    "name": "sehir_viraj_kavsak",
+    "source": "user supplied",
+    "left_points_normalized": [
+      [
+        0.5,
+        0.21
+      ],
+      [
+        0.461,
+        0.275
+      ],
+      [
+        0.45,
+        0.37
+      ],
+      [
+        0.47,
+        0.43
+      ]
+    ],
+    "right_points_normalized": [
+      [
+        0.615,
+        0.205
+      ],
+      [
+        0.73,
+        0.34
+      ],
+      [
+        0.87,
+        0.46
+      ],
+      [
+        1.0,
+        0.52
+      ]
+    ],
+    "left_dashed_intervals": [
+      [
+        0.25,
+        0.275
+      ],
+      [
+        0.29,
+        0.34
+      ],
+      [
+        0.355,
+        0.4
+      ]
+    ],
+    "split": "holdout",
+    "note": "Manual approximate path annotations; review before research benchmarks. The gaps of a dashed line are not marked as actual paint."
+  },
+  {
+    "name": "dag_cift_sari",
+    "source": "user supplied",
+    "left_points_normalized": [
+      [
+        0.55,
+        0.567
+      ],
+      [
+        0.502,
+        0.615
+      ],
+      [
+        0.492,
+        0.7
+      ],
+      [
+        0.473,
+        0.84
+      ],
+      [
+        0.461,
+        0.997
+      ]
+    ],
+    "right_points_normalized": [
+      [
+        0.67,
+        0.56
+      ],
+      [
+        0.748,
+        0.653
+      ],
+      [
+        0.86,
+        0.75
+      ],
+      [
+        1.03,
+        0.874
+      ]
+    ],
+    "left_dashed_intervals": null,
+    "split": "train",
+    "note": "Manual approximate path annotations; review before research benchmarks. The gaps of a dashed line are not marked as actual paint."
+  },
+  {
+    "name": "sehir_sari_kesikli",
+    "source": "user supplied",
+    "left_points_normalized": [
+      [
+        0.495,
+        0.29
+      ],
+      [
+        0.46,
+        0.385
+      ],
+      [
+        0.38,
+        0.57
+      ],
+      [
+        0.27,
+        0.76
+      ],
+      [
+        0.16,
+        0.995
+      ]
+    ],
+    "right_points_normalized": [
+      [
+        0.632,
+        0.29
+      ],
+      [
+        0.685,
+        0.365
+      ],
+      [
+        0.77,
+        0.49
+      ],
+      [
+        0.9,
+        0.59
+      ],
+      [
+        1.02,
+        0.63
+      ]
+    ],
+    "left_dashed_intervals": [
+      [
+        0.325,
+        0.364
+      ],
+      [
+        0.4,
+        0.46
+      ],
+      [
+        0.48,
+        0.58
+      ],
+      [
+        0.705,
+        0.79
+      ],
+      [
+        0.84,
+        0.999
+      ]
+    ],
+    "split": "train",
+    "note": "Manual approximate path annotations; review before research benchmarks. The gaps of a dashed line are not marked as actual paint."
+  }
+]

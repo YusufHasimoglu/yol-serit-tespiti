@@ -6,9 +6,10 @@ import numpy as np
 from .core import LaneDetector,LaneSettings,Detection
 from .hybrid import detect_hybrid
 from .scene import analyze_scene
+from .continuity import detect_continuous
 
 MODES={'auto':'Akıllı otomatik (gece / viraj / AI)', 'ai':'Yapay zekâ (U-Net)',
-       'hybrid':'Gelişmiş eğrisel takip', 'classic':'Klasik Canny + Hough'}
+       'hybrid':'Gelişmiş eğrisel takip', 'continuity':'Kesikli ve sürekli şerit takibi', 'classic':'Klasik Canny + Hough'}
 
 
 def _fit_mask(mask:np.ndarray,side:str):
@@ -125,6 +126,8 @@ class InferenceEngine:
             result.method+=f" · {scene.short_lighting.lower()} / {scene.short_geometry.lower()}"
             return result
 
+        if self.mode=='continuity':
+            return attach(detect_continuous(frame,self.settings))
         if self.mode=='classic':
             return attach(self.classic.detect(frame,video))
         if self.mode=='hybrid':
@@ -157,6 +160,15 @@ class InferenceEngine:
                 if abs(xb-xt)>3.4*max(1,abs(yb-yt)):return False
             return True
 
+        # Current strategy: prioritize the ego lane's center dividing paint + road edge.
+        # The trace avoids silently substituting a left-side guardrail as a lane.
+        continuous=detect_continuous(frame,self.settings)
+        if plausible(continuous):
+            continuous.method='Ego-şerit devamlılık analizi'
+            if ai is not None:
+                continuous.stages.update({k:v for k,v in ai.stages.items() if k.startswith(('09','10'))})
+            return attach(continuous)
+
         if ai is not None and plausible(ai):
             # Gerçek modelin bulduğu iki eğriden, salt renk tahmininden daha
             # anlamlı bir ikinci-geometri kontrolü elde edilir.
@@ -176,6 +188,7 @@ class InferenceEngine:
             ai.method='Sahneye uyarlanmış U-Net'
             return attach(ai)
 
+
         color=detect_hybrid(frame,self.settings)
         color.method='Eğrisel izleme (yedek)'
         if plausible(color):
@@ -188,13 +201,14 @@ class InferenceEngine:
         # tek çizgili klasik Hough'a tercih et.
         classic=self.classic.detect(frame,video)
         classic.method='Klasik Hough (son yedek)'
-        candidates=[c for c in (ai,color,classic) if c is not None]
+        candidates=[c for c in (ai,continuous,color,classic) if c is not None]
         if scene.geometry=='viraj' or scene.lighting=='gece':
             weight={id(ai):.2} if ai is not None else {}
             weight[id(color)]=.06
+            weight[id(continuous)]=.15
             weight[id(classic)]=-.16
         else:
-            weight={id(color):.05,id(classic):-.07}
+            weight={id(color):.05,id(classic):-.07,id(continuous):.14}
             if ai is not None:weight[id(ai)]=.12
         final=max(candidates,key=lambda c:c.confidence+weight.get(id(c),0.))
         if ai is not None and final is not ai:

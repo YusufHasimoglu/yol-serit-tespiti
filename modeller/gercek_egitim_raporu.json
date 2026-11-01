@@ -1,0 +1,73 @@
+{
+  "train_names": [
+    "otoyol_viraj",
+    "kirsal_viraj",
+    "dag_viraj",
+    "dag_cift_sari",
+    "sehir_sari_kesikli"
+  ],
+  "holdout_names": [
+    "filigranli_viraj",
+    "sehir_viraj_kavsak"
+  ],
+  "baseline": {
+    "filigranli_viraj": 0.0142,
+    "sehir_viraj_kavsak": 0.0
+  },
+  "best": {
+    "filigranli_viraj": 0.0142,
+    "sehir_viraj_kavsak": 0.0
+  },
+  "baseline_mean": 0.0071,
+  "best_mean": 0.0071,
+  "accepted": false,
+  "promoted": false,
+  "history": [
+    {
+      "epoch": 1,
+      "loss": 1.276,
+      "real_holdout": {
+        "filigranli_viraj": 0.0,
+        "sehir_viraj_kavsak": 0.0
+      },
+      "mean_iou": 0.0
+    },
+    {
+      "epoch": 2,
+      "loss": 1.27,
+      "real_holdout": {
+        "filigranli_viraj": 0.0,
+        "sehir_viraj_kavsak": 0.0
+      },
+      "mean_iou": 0.0
+    },
+    {
+      "epoch": 3,
+      "loss": 1.265,
+      "real_holdout": {
+        "filigranli_viraj": 0.0,
+        "sehir_viraj_kavsak": 0.0
+      },
+      "mean_iou": 0.0
+    },
+    {
+      "epoch": 4,
+      "loss": 1.262,
+      "real_holdout": {
+        "filigranli_viraj": 0.0,
+        "sehir_viraj_kavsak": 0.0
+      },
+      "mean_iou": 0.0
+    },
+    {
+      "epoch": 5,
+      "loss": 1.255,
+      "real_holdout": {
+        "filigranli_viraj": 0.0,
+        "sehir_viraj_kavsak": 0.0
+      },
+      "mean_iou": 0.0
+    }
+  ],
+  "note": "Small hand-annotated dataset, do not interpret as general real-world accuracy. Test image annotations approximate."
+}

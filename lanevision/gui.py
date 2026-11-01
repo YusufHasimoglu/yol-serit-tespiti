@@ -30,7 +30,7 @@ BORDER = "#253C57"
 class LaneApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("ŞERİT GÖRÜ PRO  |  Akıllı Yol ve Şerit Analizi")
+        self.title("ŞERİT GÖRÜ  |  Akıllı Yol ve Şerit Analizi")
         self.geometry("1390x860")
         self.minsize(1050, 690)
         self.configure(bg=BG)
@@ -106,7 +106,7 @@ class LaneApp(tk.Tk):
                  font=("Segoe UI", 23, "bold")).pack(anchor="w")
         tk.Label(namebox,text="AKILLI YOL GÖRÜNTÜSÜ ANALİZ PLATFORMU",bg=BG,fg=MUTED,
                  font=("Segoe UI",9,"bold")).pack(anchor="w")
-        tk.Label(header,text="●  AI V3  /  SAHNE FARKINDALIĞI",bg=SIDEBAR,fg=GOOD,
+        tk.Label(header,text="●  AI / ŞERİT DEVAMLILIĞI",bg=SIDEBAR,fg=GOOD,
                  font=("Segoe UI",10,"bold"),padx=17,pady=10).pack(side="right",pady=8)
 
         container = tk.Frame(self, bg=BG)
@@ -195,7 +195,7 @@ class LaneApp(tk.Tk):
         for i, (title, var) in enumerate((("SOL ŞERİT", self.metric_left),
                                            ("SAĞ ŞERİT", self.metric_right),
                                            ("MERKEZ SAPMASI", self.metric_offset),
-                                           ("HOUGH PARÇASI", self.metric_segments))):
+                                           ("ÇİZGİ DESTEĞİ", self.metric_segments))):
             card = tk.Frame(stats, bg=PANEL, padx=13, pady=9)
             card.grid(row=0, column=i, sticky="nsew", padx=(0, 8) if i < 3 else 0)
             stats.grid_columnconfigure(i, weight=1)

@@ -8,8 +8,8 @@ from lanevision.training_data import synthetic_sample, tusimple_samples
 
 ROOT=Path(__file__).resolve().parent.parent
 
-def test_hybrid_user_uploaded_curved_example():
-    image=cv2.imread(str(ROOT/'ornekler/kullanici_yolu.png'))
+def test_hybrid_with_public_synthetic_example():
+    image=cv2.imread(str(ROOT/'ornekler/ornek_yol_duz.png'))
     detection=detect_hybrid(image)
     assert detection.both_found
     assert len(detection.stages)>=8
@@ -17,7 +17,7 @@ def test_hybrid_user_uploaded_curved_example():
 
 def test_trained_weights_and_detection():
     detector=InferenceEngine(mode='ai')
-    image=cv2.imread(str(ROOT/'ornekler/kullanici_yolu.png'))
+    image=cv2.imread(str(ROOT/'ornekler/ornek_yol_duz.png'))
     found=detector.detect(image)
     assert found.both_found
     assert '10 AI sinif maskeleri' in found.stages

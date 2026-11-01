@@ -1,25 +1,10 @@
-SERIT GORU AI V2 - HIZLI BASLANGIC
+SERIT GORU — HIZLI BASLANGIC
 
-1) Python 3.10+ kurun. Windows'ta Add Python to PATH secin.
-2) AI'li surum: baslat_ai_windows.bat dosyasini acin.
-   AI kutuphanesi olmadan: baslat_windows.bat (gelismis/kendiliginden yedek).
-3) Goruntu Ac > ornekler/ornek_yol_duz.png dosyasini secin.
-4) Tespit yontemi > Otomatik (AI + egrisel yedek) secin.
-5) SERITLERI TESPIT ET > iki siniri ve sonucu gozlemleyin.
-6) Basariyi gercek fotolarda artirmak icin: docs/AI_EGITIM_REHBERI.md
+1. Windows'ta Python ve Git kurulu olsun.
+2. Masaustunuzdeki Serit-Goru klasorunde guncelle_ve_baslat.bat dosyasini acin.
+3. Goruntu Ac ile bir yol fotografi secin.
+4. Akilli otomatik veya Kesikli ve surekli serit takibi yontemini secin.
+5. Sonuc dogrulugu icin goruntu uzerinde gercek seritleri karsilastirin.
+6. Degisiklikleri GitHub'da commit ettigimizde sonraki acilista guncelleme yapilir.
 
-KOMUT SATIRI:
-  python -m pip install -r requirements-ai.txt
-  python app.py
-  python cli.py --input ornekler/ornek_yol_duz.png --output sonuc.png --mode auto --steps
-
-AI ETIKETLEME:
-  python etiketle.py --image yol.png --name yol_001
-AI EGITIM:
-  python egit.py --synthetic 120 --epochs 10 --batch 4
-
-Modeller/serit_unet_demo.pt: Gercekten egitilmis bir ornek model.
-Sinir: 120 sentetik veri ve 1 kullanici gorselinin kabaca etiketlenmis haliyle egitildi.
-Sentetik dogrulama IoU=0.6524; gercek yol dogrulugu OLARAK YORUMLANAMAZ.
-
-UYARI: Bu uygulama arac kontrolu icin kullanilamaz.
+Proje: https://github.com/YusufHasimoglu/yol-serit-tespiti

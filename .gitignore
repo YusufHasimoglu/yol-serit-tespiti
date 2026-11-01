@@ -1,5 +1,19 @@
+# Local environment and generated artifacts
 .venv/
+venv/
 __pycache__/
 .pytest_cache/
 *.pyc
-sonuc*/
+.idea/
+.vscode/
+*.log
+# Never publish user-supplied/third-party road photos or derived masks
+/data/gercek/images/
+/data/gercek/masks/
+/data/gercek/*_review.png
+# Research-only checkpoints and video exports
+/modeller/*candidate.pt
+/modeller/*aday.pt
+/modeller/*yedek.pt
+/sonuclar/
+/output/
