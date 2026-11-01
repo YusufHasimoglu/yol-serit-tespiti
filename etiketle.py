@@ -9,7 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from lanevision.processing import read_image, write_image
-from lanevision.feedback import area_mask_from_boundaries
+from lanevision.feedback import area_mask_from_boundaries, record_review
 
 
 CLASSIC_CLASSES=(("SOL",(0,0,255),1),("SAG",(0,255,0),2))
@@ -109,6 +109,7 @@ def annotate(image_path:Path,name:str,root:Path,style_aware:bool=False):
             write_image(root/'images'/f'{name}.png',original)
             write_image(root/'masks'/f'{name}_mask.png',mask)
             write_image(root/'areas'/f'{name}_area.png',area)
+            record_review(root,original,name,image_path.name,'manual_correction')
             print('Kaydedildi:',root/'images'/f'{name}.png');break
     cv2.destroyAllWindows()
 

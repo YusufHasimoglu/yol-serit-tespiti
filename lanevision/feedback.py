@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -123,6 +124,78 @@ def _unique_name(source_name: str) -> str:
     return f"{safe}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
 
 
+def image_fingerprint(image: np.ndarray) -> str:
+    """Stable fingerprint for the decoded pixels of one original photograph."""
+    if image is None or image.ndim != 3:
+        raise ValueError("Özgün BGR görüntü gerekli.")
+    digest = hashlib.sha256()
+    digest.update(str(image.shape).encode("ascii"))
+    digest.update(image.tobytes())
+    return digest.hexdigest()
+
+
+def record_review(root: Path, image: np.ndarray, name: str, source_name: str,
+                  review: str) -> dict:
+    """Index a local review so the same photo can be recalled without inference."""
+    root = Path(root)
+    record = {
+        "name": name,
+        "source_name": Path(source_name).name,
+        "review": review,
+        "fingerprint": image_fingerprint(image),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / "feedback.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return record
+
+
+def _read_mask(path: Path) -> np.ndarray | None:
+    if not path.is_file():
+        return None
+    raw = np.fromfile(str(path), dtype=np.uint8)
+    return cv2.imdecode(raw, cv2.IMREAD_UNCHANGED)
+
+
+def find_saved_review(image: np.ndarray, root: Path) -> dict | None:
+    """Find the latest local correction for exactly the same decoded image.
+
+    The fallback scan also recognizes corrections created before the review
+    index existed, because their lossless PNG source copy has identical pixels.
+    """
+    root = Path(root)
+    fingerprint = image_fingerprint(image)
+    records_path = root / "feedback.jsonl"
+    if records_path.is_file():
+        try:
+            records = [json.loads(line) for line in records_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        except (OSError, json.JSONDecodeError):
+            records = []
+        for record in reversed(records):
+            if record.get("fingerprint") != fingerprint:
+                continue
+            name = str(record.get("name", ""))
+            line_mask = _read_mask(root / "masks" / f"{name}_mask.png")
+            if line_mask is not None and line_mask.ndim == 2:
+                return {"name": name, "review": record.get("review", "user_review"),
+                        "line_mask": line_mask,
+                        "area_mask": _read_mask(root / "areas" / f"{name}_area.png")}
+    image_root = root / "images"
+    if not image_root.is_dir():
+        return None
+    for candidate in sorted(image_root.glob("*.png"), key=lambda item: item.stat().st_mtime, reverse=True):
+        copy = _read_mask(candidate)
+        if copy is None or copy.ndim != 3 or image_fingerprint(copy) != fingerprint:
+            continue
+        name = candidate.stem
+        line_mask = _read_mask(root / "masks" / f"{name}_mask.png")
+        if line_mask is not None and line_mask.ndim == 2:
+            return {"name": name, "review": "saved_manual_review", "line_mask": line_mask,
+                    "area_mask": _read_mask(root / "areas" / f"{name}_area.png")}
+    return None
+
+
 def save_confirmed_detection(image: np.ndarray, detection, root: Path, source_name: str) -> dict:
     """Save a reviewed image+mask locally and append non-sensitive audit data."""
     root = Path(root)
@@ -140,15 +213,7 @@ def save_confirmed_detection(image: np.ndarray, detection, root: Path, source_na
     image_path = write_image(root / "images" / f"{name}.png", image)
     mask_path = write_image(root / "masks" / f"{name}_mask.png", mask)
     area_path = write_image(root / "areas" / f"{name}_area.png", area)
-    record = {
-        "name": name,
-        "source_name": Path(source_name).name,
-        "review": "user_confirmed",
-        "created_at": datetime.now().isoformat(timespec="seconds"),
-        "classes": ["left_solid_or_dashed", "right_solid_or_dashed"],
-    }
-    with (root / "feedback.jsonl").open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    record_review(root, image, name, source_name, "user_confirmed")
     return {"name": name, "image": image_path, "mask": mask_path, "area": area_path}
 
 

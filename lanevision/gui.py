@@ -16,7 +16,8 @@ from PIL import Image, ImageTk
 
 from .core import Detection, LaneSettings
 from .engine import InferenceEngine, MODES
-from .feedback import render_reviewed_annotation, save_confirmed_detection, style_sample_count
+from .feedback import (find_saved_review, render_reviewed_annotation,
+                       save_confirmed_detection, style_sample_count)
 from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages, write_image
 from .scene import analyze_scene
 
@@ -367,6 +368,10 @@ class LaneApp(tk.Tk):
         self.status.set(f"Görüntü açıldı: {path.name}. Tespit düğmesine basın.")
         self._clear_metrics()
         self._render_preview()
+        saved_review=find_saved_review(self.current_image,APP_ROOT / "data" / "gercek")
+        if saved_review is not None:
+            self._show_saved_review(saved_review["line_mask"],saved_review.get("area_mask"),recalled=True)
+            return
         if self.auto_detect_var.get():
             self.after(80, self._detect)
 
@@ -381,6 +386,30 @@ class LaneApp(tk.Tk):
         self.btn_feedback_fix.configure(state=state)
         if message is not None:
             self.feedback_status.set(message)
+
+    def _show_saved_review(self,line_mask,area_mask,recalled:bool=False):
+        """Display a verified correction and prevent an old model from overwriting it."""
+        preview=render_reviewed_annotation(self.current_image,line_mask,area_mask)
+        review=Detection(preview,{"01 Orijinal":self.current_image.copy(),
+                                  "11 Kullanıcı düzeltmesi":preview},None,None,None,1.,0)
+        review.method="Kullanıcı düzeltmesi · eğitime eklendi"
+        self.current_detection=review
+        self.stage_combo.configure(values=list(review.stages.keys()))
+        self.selected_stage.set("11 Kullanıcı düzeltmesi")
+        self.current_display=preview
+        self._render_preview()
+        left_type="DÜZ" if np.any(line_mask==1) else "KESİK"
+        right_type="DÜZ" if np.any(line_mask==3) else "KESİK"
+        self.metric_left.set(left_type+" • DOĞRULANDI")
+        self.metric_right.set(right_type+" • DOĞRULANDI")
+        self.metric_offset.set("ETİKETLENDİ")
+        self.metric_segments.set("MANUEL")
+        self.algorithm_method.set("Kullanıcı düzeltmesi · eğitime eklendi")
+        count=style_sample_count(APP_ROOT / "data" / "gercek")
+        message=(f"Bu fotoğraf için kaydedilmiş kullanıcı düzeltmesi gösteriliyor ({count} etiketli fotoğraf)."
+                 if recalled else f"Düzeltmeniz doğru kabul edildi ve eğitime eklendi ({count} etiketli fotoğraf).")
+        self._set_feedback_ready(False,message)
+        self.status.set("Kullanıcı-onaylı çizgiler ve alan gösteriliyor; eski model yeniden çalıştırılmadı.")
 
     def _render_preview(self):
         if self.current_display is None:
@@ -654,26 +683,12 @@ class LaneApp(tk.Tk):
         try:
             line_mask=cv2.imdecode(np.fromfile(str(mask_path),dtype=np.uint8),cv2.IMREAD_UNCHANGED)
             area_mask=cv2.imdecode(np.fromfile(str(area_path),dtype=np.uint8),cv2.IMREAD_UNCHANGED) if area_path.is_file() else None
-            preview=render_reviewed_annotation(self.current_image,line_mask,area_mask)
+            if line_mask is None or line_mask.ndim!=2:
+                raise ValueError("Dört sınıflı çizgi maskesi okunamadı.")
         except Exception as exc:
             messagebox.showerror("Düzeltme okunamadı", str(exc))
             return
-        if self.current_detection is not None:
-            self.current_detection.stages["11 Kullanıcı düzeltmesi"] = preview
-            self.stage_combo.configure(values=list(self.current_detection.stages.keys()))
-            self.selected_stage.set("11 Kullanıcı düzeltmesi")
-        self.current_display=preview
-        self._render_preview()
-        left_type="DÜZ" if np.any(line_mask==1) else "KESİK"
-        right_type="DÜZ" if np.any(line_mask==3) else "KESİK"
-        self.metric_left.set(left_type+" • DOĞRULANDI")
-        self.metric_right.set(right_type+" • DOĞRULANDI")
-        self.metric_offset.set("ETİKETLENDİ")
-        self.metric_segments.set("MANUEL")
-        self.algorithm_method.set("Kullanıcı düzeltmesi · eğitime eklendi")
-        count=style_sample_count(root)
-        self._set_feedback_ready(False, f"Düzeltmeniz doğru kabul edildi ve eğitime eklendi ({count} etiketli fotoğraf).")
-        self.status.set("Kullanıcı düzeltmesi ekranda gösteriliyor; çizgi ve alan maskeleri yerelde kaydedildi.")
+        self._show_saved_review(line_mask,area_mask,recalled=False)
 
     def _on_close(self):
         if self.is_processing:

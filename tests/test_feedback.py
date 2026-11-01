@@ -4,8 +4,9 @@ import pytest
 
 from lanevision.core import Detection
 from lanevision.feedback import (area_mask_from_boundaries, confirmed_mask,
-                                 render_reviewed_annotation, save_confirmed_detection,
+                                 find_saved_review, render_reviewed_annotation, save_confirmed_detection,
                                  style_sample_count)
+from lanevision.processing import write_image
 
 
 def _reviewed_detection(frame):
@@ -25,6 +26,9 @@ def test_confirmed_detection_becomes_four_class_mask(tmp_path):
     assert record["mask"].is_file()
     assert record["area"].is_file()
     assert style_sample_count(tmp_path)==1
+    recalled=find_saved_review(frame,tmp_path)
+    assert recalled is not None
+    assert np.any(recalled["line_mask"]==1)
 
 
 def test_ambiguous_confirmed_detection_requires_manual_correction():
@@ -53,3 +57,15 @@ def test_review_preview_preserves_separate_dashed_strokes():
     assert preview.shape==image.shape
     # The wide asphalt gap remains unpainted rather than being joined.
     assert not np.any(np.all(preview[70,74:84] == (0,176,255),axis=1))
+
+
+def test_review_lookup_migrates_previously_saved_manual_annotation(tmp_path):
+    frame=np.full((96,160,3),90,np.uint8)
+    mask=np.zeros((96,160),np.uint8)
+    cv2.line(mask,(48,90),(68,40),1,4)
+    cv2.line(mask,(112,90),(92,40),4,4)
+    write_image(tmp_path/'images'/'old_label.png',frame)
+    write_image(tmp_path/'masks'/'old_label_mask.png',mask)
+    recalled=find_saved_review(frame,tmp_path)
+    assert recalled is not None
+    assert recalled["review"]=="saved_manual_review"
