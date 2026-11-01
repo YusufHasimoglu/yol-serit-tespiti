@@ -1,4 +1,4 @@
-# Şerit Görü — akıllı sahne analizi ve profesyonel arayüz
+# Şerit Analizi — akıllı sahne analizi ve profesyonel arayüz
 
 ## Otomatik tanıma
 

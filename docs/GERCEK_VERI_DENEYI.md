@@ -1,4 +1,4 @@
-# Şerit Görü — Gerçek Görüntü Deneyi ve Çizgi Devamlılığı
+# Şerit Analizi — Gerçek Görüntü Deneyi ve Çizgi Devamlılığı
 
 ## Ne eklendi?
 

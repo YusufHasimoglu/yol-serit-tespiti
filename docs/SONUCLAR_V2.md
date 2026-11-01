@@ -1,4 +1,4 @@
-# ŞERİT GÖRÜ AI V2 — Ön Test Sonuçları (01.11.2026)
+# Şerit Analizi — Ön Test Sonuçları (01.11.2026)
 
 ## Model eğitimi
 

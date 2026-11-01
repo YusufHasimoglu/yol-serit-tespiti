@@ -1,4 +1,6 @@
-# Şerit Görü — Akıllı Yol ve Şerit Analizi
+# Şerit Analizi
+
+**Akıllı Yol ve Şerit Tespiti**
 
 Python/OpenCV ve PyTorch ile geliştirilmiş Türkçe arayüzlü, araştırma amaçlı **şerit çizgisi tespit projesi**. Tek geliştirme deposu üzerinden sürdürülür; kaynak kodu, testler ve belgeler burada tutulur.
 
@@ -22,7 +24,7 @@ PowerShell açın ve şu komutları çalıştırın (OneDrive masaüstü için d
 
 ```powershell
 $desktop = [Environment]::GetFolderPath('Desktop')
-$project = Join-Path $desktop 'Serit-Goru'
+$project = Join-Path $desktop 'Serit-Analizi'
 if (-not (Test-Path $project)) {
     git clone https://github.com/YusufHasimoglu/yol-serit-tespiti.git $project
 }
@@ -30,7 +32,9 @@ Set-Location $project
 .\guncelle_ve_baslat.bat
 ```
 
-Her sonraki çalıştırmada masaüstündeki `Serit-Goru` klasöründen `guncelle_ve_baslat.bat` dosyasını açın. Bu dosya `git pull --ff-only` ile yeni commit'leri alır, gerekli Python paketlerini yükler ve uygulamayı başlatır. **Yerelde değiştirdiğiniz dosyalar varsa güncelleme çakışabilir**; kayıpsız çözüm için değişiklikleri commit veya yedekleyin.
+Her sonraki çalıştırmada masaüstündeki `Serit-Analizi` klasöründen `guncelle_ve_baslat.bat` dosyasını açın. Bu dosya `git pull --ff-only` ile yeni commit'leri alır, gerekli Python paketlerini yükler ve uygulamayı başlatır. **Yerelde değiştirdiğiniz dosyalar varsa güncelleme çakışabilir**; kayıpsız çözüm için değişiklikleri commit veya yedekleyin.
+
+Mevcut masaüstü projenizi yeniden klonlamanız gerekmez. Klasör adı farklı olsa da `guncelle_ve_baslat.bat` dosyası aynı depodan günceller. Klasörün adını değiştirmek isterseniz uygulamayı kapatıp Windows Gezgini'nde yeniden adlandırabilirsiniz.
 
 ## Geliştirici komutları
 

@@ -30,7 +30,7 @@ BORDER = "#253C57"
 class LaneApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("ŞERİT GÖRÜ  |  Akıllı Yol ve Şerit Analizi")
+        self.title("ŞERİT ANALİZİ  |  Akıllı Yol ve Şerit Tespiti")
         self.geometry("1390x860")
         self.minsize(1050, 690)
         self.configure(bg=BG)
@@ -102,7 +102,7 @@ class LaneApp(tk.Tk):
         tk.Label(brand,text="◈",bg=BG,fg=GOOD,font=("Segoe UI Symbol",28,"bold")).pack(side="left",padx=(0,10))
         namebox=tk.Frame(brand,bg=BG)
         namebox.pack(side="left")
-        tk.Label(namebox, text="ŞERİT GÖRÜ", bg=BG, fg=TEXT,
+        tk.Label(namebox, text="ŞERİT ANALİZİ", bg=BG, fg=TEXT,
                  font=("Segoe UI", 23, "bold")).pack(anchor="w")
         tk.Label(namebox,text="AKILLI YOL GÖRÜNTÜSÜ ANALİZ PLATFORMU",bg=BG,fg=MUTED,
                  font=("Segoe UI",9,"bold")).pack(anchor="w")
