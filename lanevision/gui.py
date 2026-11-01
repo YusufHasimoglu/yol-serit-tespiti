@@ -18,6 +18,7 @@ from .core import Detection, LaneSettings
 from .engine import InferenceEngine, MODES
 from .feedback import (find_saved_review, render_reviewed_annotation,
                        save_confirmed_detection, style_sample_count)
+from .live_video import LiveVideoSession
 from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages, write_image
 from .scene import analyze_scene
 
@@ -45,6 +46,12 @@ class LaneApp(tk.Tk):
         self.current_display: np.ndarray | None = None
         self.output_video: Path | None = None
         self.is_processing = False
+        self.live_session: LiveVideoSession | None = None
+        self.live_playing = False
+        self.live_after_id = None
+        self.live_frame_index = 0
+        self.pending_manual_anchor: tuple[np.ndarray, np.ndarray] | None = None
+        self.annotation_in_progress = False
         self.stop_event = threading.Event()
         self.messages: queue.Queue[tuple] = queue.Queue(maxsize=80)
         self.preview_photo = None
@@ -161,6 +168,8 @@ class LaneApp(tk.Tk):
         self._slider(self.advanced_frame, "Video yumuşatma (%)", "smoothing", 0, 95)
 
         self._subhead(controls, "04 / İŞLEMLER")
+        self.btn_live = self._button(controls, "▶ CANLI VİDEOYU BAŞLAT", self._start_live_video)
+        self.btn_live.configure(state="disabled")
         self.btn_detect = self._button(controls, "ŞERİTLERİ TESPİT ET", self._detect, primary=True)
         self.btn_save = self._button(controls, "SONUCU KAYDET", self._save_result)
         self.btn_steps = self._button(controls, "ARA ADIMLARI KAYDET", self._save_steps)
@@ -315,6 +324,10 @@ class LaneApp(tk.Tk):
         if self.is_processing:
             messagebox.showwarning("İşlem sürüyor", "Önce mevcut video işlemini durdurun.")
             return
+        if self.annotation_in_progress:
+            messagebox.showwarning("Etiketleme sürüyor", "Önce açık etiketleme penceresinde kaydedin veya çıkın.")
+            return
+        self._close_live_video()
         name = filedialog.askopenfilename(title="Yol görüntüsü seç", filetypes=[
             ("Görüntüler", "*.jpg *.jpeg *.png *.bmp *.webp *.tif *.tiff"), ("Tüm dosyalar", "*.*")])
         if name:
@@ -324,6 +337,10 @@ class LaneApp(tk.Tk):
         if self.is_processing:
             messagebox.showwarning("İşlem sürüyor", "Önce mevcut video işlemini durdurun.")
             return
+        if self.annotation_in_progress:
+            messagebox.showwarning("Etiketleme sürüyor", "Önce açık etiketleme penceresinde kaydedin veya çıkın.")
+            return
+        self._close_live_video()
         name = filedialog.askopenfilename(title="Yol videosu seç", filetypes=[
             ("Videolar", "*.mp4 *.avi *.mov *.mkv *.m4v"), ("Tüm dosyalar", "*.*")])
         if not name:
@@ -338,6 +355,7 @@ class LaneApp(tk.Tk):
         finally:
             cap.release()
         if ok and frame is not None:
+            self.current_image = frame
             self.current_display = frame
             self._analyze_loaded_scene(frame)
             self.selected_stage.set("01 Orijinal")
@@ -346,18 +364,23 @@ class LaneApp(tk.Tk):
             messagebox.showerror("Hata", "Video önizlemesi açılamadı.")
             self.current_file = None
             return
-        self.status.set("Video seçildi. 'Şeritleri tespit et' ile işleyebilirsiniz.")
+        self.btn_live.configure(state="normal", text="▶ CANLI VİDEOYU BAŞLAT")
+        self.btn_stop.configure(state="disabled")
+        self.status.set("Video seçildi. Canlı kaplamayı başlatın veya videoyu dosyaya işleyin.")
         self.progress_percent.set(0)
-        self.progress_text.set("Video işlenmeyi bekliyor")
+        self.progress_text.set("Canlı video başlatılmayı bekliyor")
         self._clear_metrics()
 
     def _open_image(self, path: Path):
+        self._close_live_video()
         try:
             self.current_image = read_image(path)
         except Exception as exc:
             messagebox.showerror("Dosya hatası", str(exc))
             return
         self.current_file = path
+        self.btn_live.configure(state="disabled", text="▶ CANLI VİDEOYU BAŞLAT")
+        self.btn_stop.configure(state="disabled")
         self.current_detection = None
         self.source_name.set(path.name)
         self.current_display = self.current_image
@@ -488,7 +511,121 @@ class LaneApp(tk.Tk):
     def _mode(self):
         return self.mode_keys.get(self.mode_var.get(), "auto")
 
+    def _start_live_video(self):
+        """Play one video through the detector and refresh the preview per frame."""
+        if self.is_processing:
+            messagebox.showwarning("Video işleniyor", "Önce dosyaya işlenen videonun durmasını bekleyin.")
+            return
+        if self.current_file is None or self.current_file.suffix.lower() not in VIDEO_EXTENSIONS:
+            messagebox.showinfo("Video seçin", "Önce bir yol videosu açın.")
+            return
+        if self.annotation_in_progress:
+            messagebox.showinfo("Etiketleme sürüyor", "Önce açık etiketleme penceresinde kaydedin veya çıkın.")
+            return
+        if self.live_session is None:
+            try:
+                self.live_session = LiveVideoSession(self.current_file, self._settings(), self._mode())
+                if self.pending_manual_anchor is not None:
+                    anchor_frame, anchor_mask = self.pending_manual_anchor
+                    self.live_session.set_manual_anchor(anchor_frame, anchor_mask)
+                    self.pending_manual_anchor = None
+            except (OSError, ValueError) as exc:
+                messagebox.showerror("Canlı video açılamadı", str(exc))
+                self.live_session = None
+                return
+            self.live_frame_index = 0
+        self.live_playing = True
+        self.btn_live.configure(state="disabled", text="▶ CANLI VİDEO ÇALIŞIYOR")
+        self.btn_stop.configure(state="normal")
+        self.btn_detect.configure(state="disabled")
+        # Video seçilirken ilk karenin ham görünümü gösterilir. Canlı
+        # takipte ise kullanıcı her zaman kaplamalı sonucu görmelidir.
+        self.selected_stage.set("08 Sonuc")
+        self._set_feedback_ready(False, "Canlı şerit takibi çalışıyor. Hatalı bir karede videoyu durdurun.")
+        self.status.set("Canlı video başladı; şerit kaplaması her karede güncelleniyor.")
+        self._next_live_frame()
+
+    def _next_live_frame(self):
+        """Advance the Tk event loop only after one frame has been fully analysed."""
+        self.live_after_id = None
+        if not self.live_playing or self.live_session is None:
+            return
+        try:
+            packet = self.live_session.read_next()
+        except Exception as exc:
+            self._finish_live_video(error=str(exc))
+            return
+        if packet is None:
+            self._finish_live_video(completed=True)
+            return
+        self.live_frame_index = packet.index
+        self.current_image = packet.original
+        self.current_detection = packet.detection
+        self.stage_combo.configure(values=list(packet.detection.stages.keys()))
+        if self.selected_stage.get() not in packet.detection.stages:
+            self.selected_stage.set("08 Sonuc")
+        self.current_display = packet.detection.stages.get(self.selected_stage.get(), packet.detection.frame)
+        self._render_preview()
+        self._set_metrics(packet.detection)
+        source = ("İlk kullanıcı çizimi optik olarak takip ediliyor."
+                  if packet.anchored else "Hatalıysa videoyu durdurup doğru çizgileri işaretleyin.")
+        self._set_feedback_ready(True, f"Canlı kare {packet.index}. {source}")
+        self.progress_percent.set(min(100, 100 * packet.index / packet.total) if packet.total else 0)
+        self.progress_text.set(f"Canlı kare: {packet.index} / {packet.total if packet.total else '?'}")
+        delay = max(1, int(1000 / packet.fps))
+        self.live_after_id = self.after(delay, self._next_live_frame)
+
+    def _pause_live_video(self, message: str | None = None):
+        """Freeze the displayed original frame so it can safely be reviewed."""
+        if not self.live_playing:
+            return
+        self.live_playing = False
+        if self.live_after_id is not None:
+            try:
+                self.after_cancel(self.live_after_id)
+            except tk.TclError:
+                pass
+            self.live_after_id = None
+        self.btn_live.configure(state="normal", text="▶ CANLI VİDEOYA DEVAM ET")
+        self.btn_stop.configure(state="disabled")
+        self.btn_detect.configure(state="normal")
+        if self.current_detection is not None:
+            self._set_feedback_ready(True, f"Kare {self.live_frame_index} duraklatıldı. Doğruysa kaydedin, hatalıysa çizin.")
+        self.status.set(message or f"Canlı video {self.live_frame_index}. karede duraklatıldı.")
+
+    def _close_live_video(self):
+        """Release a live capture without touching a separately saved batch output."""
+        self.live_playing = False
+        if self.live_after_id is not None:
+            try:
+                self.after_cancel(self.live_after_id)
+            except tk.TclError:
+                pass
+            self.live_after_id = None
+        if self.live_session is not None:
+            self.live_session.close()
+            self.live_session = None
+        self.pending_manual_anchor = None
+        if hasattr(self, "btn_live"):
+            self.btn_live.configure(state="disabled", text="▶ CANLI VİDEOYU BAŞLAT")
+            self.btn_stop.configure(state="disabled")
+            if not self.is_processing:
+                self.btn_detect.configure(state="normal")
+
+    def _finish_live_video(self, completed: bool = False, error: str | None = None):
+        self._close_live_video()
+        self.btn_live.configure(state="normal", text="▶ CANLI VİDEOYU BAŞTAN BAŞLAT")
+        if error:
+            self.status.set("Canlı video sırasında hata oluştu.")
+            messagebox.showerror("Canlı video hatası", error)
+        elif completed:
+            self.progress_percent.set(100)
+            self.status.set("Canlı video tamamlandı. Baştan oynatabilir veya son kareyi değerlendirebilirsiniz.")
+        else:
+            self.status.set("Canlı video kapatıldı.")
+
     def _run_video(self, settings):
+        self._close_live_video()
         name = filedialog.asksaveasfilename(title="Video çıktısının konumu", defaultextension=".mp4",
                                             initialfile=self.current_file.stem + "_sonuc.mp4",
                                             filetypes=[("MP4 video", "*.mp4")])
@@ -559,10 +696,15 @@ class LaneApp(tk.Tk):
         self.is_processing = False
         self.btn_detect.configure(state="normal")
         self.btn_stop.configure(state="disabled")
+        if self.current_file is not None and self.current_file.suffix.lower() in VIDEO_EXTENSIONS:
+            self.btn_live.configure(state="normal", text="▶ CANLI VİDEOYU BAŞLAT")
 
     def _stop_video(self):
-        self.stop_event.set()
-        self.status.set("Durdurma isteği gönderildi, mevcut kare tamamlanıyor.")
+        if self.is_processing:
+            self.stop_event.set()
+            self.status.set("Durdurma isteği gönderildi, mevcut kare tamamlanıyor.")
+        elif self.live_playing:
+            self._pause_live_video()
 
     def _save_result(self):
         if self.current_detection is None:
@@ -596,8 +738,9 @@ class LaneApp(tk.Tk):
     def _confirm_detection(self):
         """Save only a user-validated, complete and typed result as training data."""
         if self.current_image is None or self.current_detection is None or self.current_file is None:
-            messagebox.showinfo("Tespit yok", "Önce özgün bir fotoğrafta şerit tespiti yapın.")
+            messagebox.showinfo("Tespit yok", "Önce bir fotoğraf veya video karesinde şerit tespiti yapın.")
             return
+        self._pause_live_video("Canlı video doğrulama için duraklatıldı.")
         try:
             sample = save_confirmed_detection(
                 self.current_image, self.current_detection, APP_ROOT / "data" / "gercek", self.current_file.name)
@@ -605,12 +748,25 @@ class LaneApp(tk.Tk):
             messagebox.showinfo("Elle düzeltme gerekli", str(exc))
             self._review_incorrect()
             return
+        if self.current_file.suffix.lower() in VIDEO_EXTENSIONS and self.live_session is not None:
+            # Kullanıcı mevcut tespiti doğru onayladıysa, aynı sonuç sonraki
+            # karelerde de takip ankrajı olmalıdır; kare kare yeniden seçim
+            # yapmak görüntünün titremesine neden olur.
+            saved_mask = cv2.imdecode(np.fromfile(str(sample["mask"]), dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+            if saved_mask is not None and saved_mask.ndim == 2:
+                try:
+                    self.live_session.set_manual_anchor(self.current_image, saved_mask)
+                except ValueError:
+                    pass
         count = style_sample_count(APP_ROOT / "data" / "gercek")
+        anchor_note = (" Video karesi sonraki görüntüler için takip ankrajı oldu."
+                       if self.current_file.suffix.lower() in VIDEO_EXTENSIONS else "")
         self._set_feedback_ready(False, f"Onaylı örnek kaydedildi ({count} etiketli fotoğraf). "
-                                  "Hatalı örneklerde 'doğrusunu çiz' seçeneğini kullanın.")
+                                  "Hatalı örneklerde 'doğrusunu çiz' seçeneğini kullanın." + anchor_note)
         self.status.set(f"Onaylı eğitim örneği yerelde kaydedildi: {sample['image'].name}")
 
     def _review_incorrect(self):
+        self._pause_live_video("Canlı video düzeltme için duraklatıldı.")
         self._launch_labeler(correction=True)
 
     def _train_feedback_model(self):
@@ -644,42 +800,64 @@ class LaneApp(tk.Tk):
         self._launch_labeler(correction=False)
 
     def _launch_labeler(self, correction: bool):
-        """Özgün fotoğraf için dört sınıflı etiketleme penceresini aç."""
+        """Fotoğrafı veya duraklatılan video karesini dört sınıfta etiketle."""
         if self.current_file is None or self.current_image is None:
-            messagebox.showinfo("Fotoğraf seçin", "Önce etiketlemek istediğiniz özgün yol fotoğrafını açın.")
+            messagebox.showinfo("Görüntü seçin", "Önce etiketlemek istediğiniz yol görüntüsünü veya video karesini açın.")
             return
-        if self.current_file.suffix.lower() in VIDEO_EXTENSIONS:
-            messagebox.showinfo("Video karesi", "Videodan önce bir kareyi görsel olarak kaydedip sonra o görseli açın.")
+        if self.annotation_in_progress:
+            messagebox.showinfo("Etiketleme sürüyor", "Açık etiketleme penceresinde önce kaydedin veya çıkın.")
             return
+        video_frame = self.current_file.suffix.lower() in VIDEO_EXTENSIONS
+        if video_frame:
+            self._pause_live_video("Canlı video etiketleme için duraklatıldı.")
         if not correction and not messagebox.askyesno(
             "Eğitim etiketi",
             "Açılan pencerede 1=sol düz, 2=sol kesik, 3=sağ düz, 4=sağ kesik, 5=aradaki alan seçilir.\n"
             "Her çizgi için en az iki nokta koyun. Özgün görsel yalnızca yerel eğitim klasörüne kaydedilecek."
         ):
             return
-        name=f"{self.current_file.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        source_path=self.current_file
+        now = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        if video_frame:
+            frame_dir = APP_ROOT / "data" / "gercek" / "video_kareleri"
+            frame_dir.mkdir(parents=True, exist_ok=True)
+            source_path = frame_dir / f"{self.current_file.stem}_kare_{self.live_frame_index:06d}_{now}.png"
+            try:
+                write_image(source_path, self.current_image)
+            except Exception as exc:
+                messagebox.showerror("Kare kaydedilemedi", str(exc))
+                return
+            name = source_path.stem
+        else:
+            source_path = self.current_file
+            name = f"{self.current_file.stem}_{now}"
         try:
             process=subprocess.Popen([
-                sys.executable, str(APP_ROOT / "etiketle.py"), "--image", str(self.current_file),
+                sys.executable, str(APP_ROOT / "etiketle.py"), "--image", str(source_path),
                 "--name", name, "--outdir", str(APP_ROOT / "data" / "gercek"), "--style-aware",
             ], cwd=str(APP_ROOT))
         except OSError as exc:
             messagebox.showerror("Etiketleme açılamadı", str(exc))
             return
+        self.annotation_in_progress = True
+        if video_frame:
+            self.btn_live.configure(state="disabled")
         self._set_feedback_ready(False, "Etiketleme penceresinde doğru çizgileri işaretleyip S ile kaydedin.")
         self.status.set("Etiketleme penceresi açıldı. Kaydedilen özgün görsel yalnızca yerel eğitim verisine eklenir.")
-        self.after(250, lambda: self._wait_for_annotation(process, name, source_path))
+        self.after(250, lambda: self._wait_for_annotation(process, name, source_path, video_frame))
 
-    def _wait_for_annotation(self, process, name: str, source_path: Path):
+    def _wait_for_annotation(self, process, name: str, source_path: Path, video_frame: bool = False):
         """Return a saved correction to the main view after the annotator closes."""
         if process.poll() is None:
-            self.after(250, lambda: self._wait_for_annotation(process, name, source_path))
+            self.after(250, lambda: self._wait_for_annotation(process, name, source_path, video_frame))
             return
+        self.annotation_in_progress = False
+        if video_frame and not self.is_processing:
+            self.btn_live.configure(state="normal", text="▶ CANLI VİDEOYA DEVAM ET")
         root=APP_ROOT / "data" / "gercek"
         mask_path=root / "masks" / f"{name}_mask.png"
         area_path=root / "areas" / f"{name}_area.png"
-        if not mask_path.is_file() or self.current_image is None or self.current_file != source_path:
+        same_source = video_frame or self.current_file == source_path
+        if not mask_path.is_file() or self.current_image is None or not same_source:
             if self.current_detection is not None:
                 self._set_feedback_ready(True, "Etiketleme kaydedilmedi. Sonucu yeniden değerlendirebilirsiniz.")
             return
@@ -688,6 +866,13 @@ class LaneApp(tk.Tk):
             area_mask=cv2.imdecode(np.fromfile(str(area_path),dtype=np.uint8),cv2.IMREAD_UNCHANGED) if area_path.is_file() else None
             if line_mask is None or line_mask.ndim!=2:
                 raise ValueError("Dört sınıflı çizgi maskesi okunamadı.")
+            if video_frame:
+                if self.live_session is not None:
+                    self.live_session.set_manual_anchor(self.current_image, line_mask)
+                else:
+                    # Video ilk karede etiketlendiyse oturum henüz açılmamış
+                    # olur; ilk canlı başlatmada aynı ankraj kurulacaktır.
+                    self.pending_manual_anchor = (self.current_image.copy(), line_mask.copy())
         except Exception as exc:
             messagebox.showerror("Düzeltme okunamadı", str(exc))
             return
@@ -698,6 +883,7 @@ class LaneApp(tk.Tk):
             messagebox.showwarning("Video işleniyor", "Önce 'Videoyu durdur' düğmesine basıp işlemin bitmesini bekleyin.")
             self.stop_event.set()
             return
+        self._close_live_video()
         self.destroy()
 
 
