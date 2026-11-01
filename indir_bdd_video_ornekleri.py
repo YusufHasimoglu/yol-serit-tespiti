@@ -92,6 +92,24 @@ def main() -> None:
                 shutil.copyfileobj(source,destination,1024*1024)
             print(f'[{index}/{len(stems)}] indirildi: {target.name}',flush=True)
 
+    metadata = {
+        'dataset': 'BDD100K',
+        'source': 'https://github.com/bdd100k/bdd100k',
+        'download_documentation': 'https://github.com/bdd100k/bdd100k/blob/master/doc/source/download.rst',
+        'archive': args.url,
+        'count': len(stems),
+        'videos': [
+            f'{stem}{Path(by_stem[stem].filename).suffix.lower()}' for stem in stems
+        ],
+        'notice': (
+            'Bu ornekler egitim ve arastirma amaciyla hazirlanmistir. '
+            'Kullanim BDD100K veri setinin lisans ve kullanim kosullarina tabidir.'
+        ),
+    }
+    (args.out / 'KAYNAKLAR.json').write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2), encoding='utf-8'
+    )
+
 
 if __name__=='__main__':
     main()
