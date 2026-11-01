@@ -8,7 +8,7 @@ from .hybrid import detect_hybrid
 from .scene import analyze_scene
 from .continuity import detect_continuous
 from .ufld import UFLDDetector
-from .yolopv2 import YOLOPv2Detector
+from .yolopv2 import DEFAULT_YOLOPV2_WEIGHTS, YOLOPv2Detector
 
 MODES={'auto':'Akıllı otomatik (gece / viraj / AI)', 'ai':'Yapay zekâ (U-Net)',
        'ufld':'Yapay zekâ (UFLD V2 derin şerit)',
@@ -229,6 +229,21 @@ class InferenceEngine:
             result.method+=f" · {scene.short_lighting.lower()} / {scene.short_geometry.lower()}"
             return result
 
+        def automatic_yolopv2():
+            """Yalnızca zor sahnede, yerel model varsa YOLOPv2'yi dene.
+
+            Otomatik kullanımda modelin eksik veya uyumsuz olması tespiti
+            durdurmamalıdır; klasik fiziksel izleme güvenli yedektir.
+            """
+            if not DEFAULT_YOLOPV2_WEIGHTS.is_file():
+                return None
+            try:
+                if self.yolopv2 is None:self.yolopv2=YOLOPv2Detector()
+                return self.yolopv2.detect(frame,self.settings)
+            except (FileNotFoundError,RuntimeError,ValueError) as exc:
+                self.model_warning=str(exc)
+                return None
+
         if self.mode=='continuity':
             return attach(detect_continuous(frame,self.settings))
         if self.mode=='classic':
@@ -283,8 +298,24 @@ class InferenceEngine:
         continuous=detect_continuous(frame,self.settings,
                                      probabilities=(getattr(ai,'ai_probabilities',None) if ai is not None else None),
                                      channel_layout=(getattr(ai,'ai_channel_layout',None) if ai is not None else None))
-        if plausible(continuous):
-            continuous.method='Ego-şerit devamlılık analizi'
+        continuous_ok=plausible(continuous)
+        # Keep the quick, explainable tracer for bright straight roads.  A
+        # curve or low-light profile is more prone to guardrail/highlight
+        # confusion, so first ask YOLOPv2 for an independently predicted road
+        # and lane mask.  It is selected only when that mask also supports a
+        # geometrically valid pair; otherwise the ordinary safe path remains.
+        # A profile's "belirsiz" geometry is itself a reason to request the
+        # deeper mask model: it often means worn paint, an unusual camera
+        # angle, or a bend whose curvature is not apparent in the fast probe.
+        difficult_scene=scene.lighting!='gunduz' or scene.geometry!='duz'
+        if difficult_scene or not continuous_ok:
+            yolopv2=automatic_yolopv2()
+            if (yolopv2 is not None and plausible(yolopv2)
+                    and getattr(yolopv2,'ai_evidence_used',False)):
+                yolopv2.method='Otomatik seçim: YOLOPv2 şerit + alan'
+                return attach(yolopv2)
+        if continuous_ok:
+            continuous.method='Otomatik seçim: kesikli/düz şerit takibi'
             if ai is not None:
                 continuous.stages.update({k:v for k,v in ai.stages.items() if k.startswith(('09','10'))})
             return attach(continuous)

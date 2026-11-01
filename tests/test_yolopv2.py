@@ -4,6 +4,7 @@ import numpy as np
 
 from lanevision.continuity import detect_continuous
 from lanevision.engine import MODES
+from lanevision.gui import USER_VISIBLE_MODES
 from lanevision.yolopv2 import _mask_from_outputs, prepare_yolopv2_input
 
 
@@ -66,3 +67,8 @@ def test_yolopv2_guidance_keeps_a_valid_dashed_solid_pair():
 def test_yolopv2_is_an_explicit_user_selectable_mode():
     assert "yolopv2" in MODES
     assert "YOLOPv2" in MODES["yolopv2"]
+
+
+def test_desktop_menu_exposes_only_clear_user_choices():
+    assert tuple(USER_VISIBLE_MODES) == ("auto", "yolopv2", "classic")
+    assert "görsele göre" in USER_VISIBLE_MODES["auto"]

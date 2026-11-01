@@ -34,6 +34,13 @@ TEXT = "#F0F6FF"
 MUTED = "#9EADC4"
 GOOD = "#2DE2BA"
 BORDER = "#253C57"
+# Teknik modlar test/komut satırı için korunur. Masaüstü arayüzü ise günlük
+# kullanımda yalnızca anlaşılır üç seçeneği gösterir.
+USER_VISIBLE_MODES={
+    "auto":"Otomatik (görsele göre önerilen)",
+    "yolopv2":"Gelişmiş yapay zekâ (YOLOPv2)",
+    "classic":"Klasik çizgi takibi (hızlı)",
+}
 
 
 class LaneApp(tk.Tk):
@@ -72,8 +79,8 @@ class LaneApp(tk.Tk):
             "smoothing": tk.IntVar(value=60),
         }
         self.selected_stage = tk.StringVar(value="08 Sonuc")
-        self.mode_var = tk.StringVar(value=MODES["auto"])
-        self.mode_keys = {label:key for key,label in MODES.items()}
+        self.mode_var = tk.StringVar(value=USER_VISIBLE_MODES["auto"])
+        self.mode_keys = {label:key for key,label in USER_VISIBLE_MODES.items()}
         self.algorithm_method = tk.StringVar(value="Yöntem: henüz çalıştırılmadı")
         self.feedback_status = tk.StringVar(value="Tespit sonrası sonucu doğru veya hatalı olarak işaretleyebilirsiniz.")
         self.status = tk.StringVar(value="Hazır. Örnek görüntüyle başlayabilir veya kendi dosyanızı açabilirsiniz.")
@@ -178,8 +185,11 @@ class LaneApp(tk.Tk):
                        activeforeground=TEXT,font=("Segoe UI",9)).pack(anchor="w",pady=(0,10))
         self._subhead(controls, "03 / TESPİT AYARLARI")
         tk.Label(controls, text="Tespit yöntemi", bg=SIDEBAR, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w")
-        ttk.Combobox(controls, textvariable=self.mode_var, values=list(MODES.values()),
+        ttk.Combobox(controls, textvariable=self.mode_var, values=list(USER_VISIBLE_MODES.values()),
                      state="readonly", width=34).pack(fill="x", pady=(3,10))
+        tk.Label(controls,text="Otomatik seçim, ışık ve yol şeklini değerlendirir.",
+                 bg=SIDEBAR,fg=MUTED,font=("Segoe UI",8),wraplength=295,
+                 justify="left").pack(anchor="w",pady=(-6,8))
         tk.Label(controls,textvariable=self.ai_status_var,bg=SIDEBAR,
                  fg=GOOD,font=("Segoe UI",9),wraplength=295).pack(anchor="w",pady=(0,8))
         self.advanced_btn=self._button(controls,"⚙  GELİŞMİŞ PARAMETRELERİ GÖSTER",self._toggle_advanced)
