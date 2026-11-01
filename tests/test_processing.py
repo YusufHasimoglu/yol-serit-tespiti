@@ -11,7 +11,7 @@ def test_image_and_stages(tmp_path):
     output = tmp_path / 'işlenmiş.png'
     cv2.imwrite(str(tmp_path / 'temp.png'), draw_scene())
     origin.write_bytes((tmp_path / 'temp.png').read_bytes())
-    result = process_image(origin, output, stages_dir=tmp_path/'adımlar')
+    result = process_image(origin, output, stages_dir=tmp_path/'adımlar', mode='classic')
     assert result.both_found
     assert read_image(output).shape == (720, 1280, 3)
     assert len(list((tmp_path/'adımlar').glob('*.png'))) == 8

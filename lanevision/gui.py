@@ -11,7 +11,8 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-from .core import Detection, LaneDetector, LaneSettings
+from .core import Detection, LaneSettings
+from .engine import InferenceEngine, MODES
 from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages, write_image
 
 APP_ROOT = Path(__file__).resolve().parent.parent
@@ -50,6 +51,9 @@ class LaneApp(tk.Tk):
             "smoothing": tk.IntVar(value=60),
         }
         self.selected_stage = tk.StringVar(value="08 Sonuc")
+        self.mode_var = tk.StringVar(value=MODES["auto"])
+        self.mode_keys = {label:key for key,label in MODES.items()}
+        self.algorithm_method = tk.StringVar(value="Yöntem: henüz çalıştırılmadı")
         self.status = tk.StringVar(value="Hazır. Örnek görüntüyle başlayabilir veya kendi dosyanızı açabilirsiniz.")
         self.metric_left = tk.StringVar(value="—")
         self.metric_right = tk.StringVar(value="—")
@@ -62,7 +66,7 @@ class LaneApp(tk.Tk):
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._process_messages)
-        self.after(200, self._load_example_if_exists)
+        self.after(200, lambda: self._load_example_if_exists(force=False))
 
     def _configure_styles(self):
         style = ttk.Style(self)
@@ -76,7 +80,7 @@ class LaneApp(tk.Tk):
         tk.Label(header, text="ŞERİT GÖRÜ", bg=BG, fg=BLUE, font=("Segoe UI", 24, "bold")).pack(side="left")
         tk.Label(header, text="  /  Yol Görüntülerinden Şerit Tespiti", bg=BG, fg=MUTED,
                  font=("Segoe UI", 13)).pack(side="left", pady=(8, 0))
-        tk.Label(header, text="OpenCV  •  Canny + ROI + Hough", bg=BG, fg=GOOD,
+        tk.Label(header, text="OpenCV + Eğrisel Takip + U-Net", bg=BG, fg=GOOD,
                  font=("Segoe UI", 10, "bold")).pack(side="right", pady=(10, 0))
 
         container = tk.Frame(self, bg=BG)
@@ -100,11 +104,16 @@ class LaneApp(tk.Tk):
         self._subhead(controls, "01 / DOSYA SEÇİMİ")
         self._button(controls, "GÖRÜNTÜ AÇ", self._select_image, primary=True)
         self._button(controls, "VİDEO AÇ", self._select_video)
-        self._button(controls, "ÖRNEK GÖRÜNTÜYÜ AÇ", self._load_example_if_exists)
+        self._button(controls, "ÖRNEK GÖRÜNTÜYÜ AÇ", lambda: self._load_example_if_exists(force=True))
         tk.Label(controls, textvariable=self.source_name, bg=SIDEBAR, fg=MUTED, wraplength=277,
                  justify="left", font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 12))
 
         self._subhead(controls, "02 / ALGORİTMA AYARLARI")
+        tk.Label(controls, text="Tespit yöntemi", bg=SIDEBAR, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w")
+        ttk.Combobox(controls, textvariable=self.mode_var, values=list(MODES.values()),
+                     state="readonly", width=34).pack(fill="x", pady=(3,10))
+        tk.Label(controls, text="AI modu: pip install -r requirements-ai.txt", bg=SIDEBAR,
+                 fg=MUTED, font=("Segoe UI", 8), wraplength=270).pack(anchor="w", pady=(0,8))
         self._slider(controls, "Canny alt eşik", "canny_low", 0, 220)
         self._slider(controls, "Canny üst eşik", "canny_high", 1, 255)
         self._slider(controls, "ROI başlangıcı (%)", "roi_top", 35, 80)
@@ -124,9 +133,11 @@ class LaneApp(tk.Tk):
         tool_row.pack(fill="x", pady=(1, 9))
         tk.Label(tool_row, text="GÖRSEL ÖNİZLEME", bg=BG, fg=TEXT,
                  font=("Segoe UI", 13, "bold")).pack(side="left")
-        ttk.Combobox(tool_row, textvariable=self.selected_stage, state="readonly", width=27,
+        self.stage_combo = ttk.Combobox(tool_row, textvariable=self.selected_stage, state="readonly", width=27,
                      values=["01 Orijinal", "02 Gri ton", "03 Bulaniklastirma", "04 Canny kenarlar",
-                             "05 ROI maskesi", "06 ROI kenarlari", "07 Hough dogrulari", "08 Sonuc"]).pack(side="right")
+                             "05 ROI maskesi", "06 ROI kenarlari", "07 Hough dogrulari", "08 Sonuc",
+                             "09 AI olasilik haritasi", "10 AI sinif maskeleri"])
+        self.stage_combo.pack(side="right")
         self.selected_stage.trace_add("write", lambda *_: self._refresh_stage())
         visual_frame = tk.Frame(main, bg=PANEL, padx=12, pady=12)
         visual_frame.pack(fill="both", expand=True)
@@ -148,6 +159,8 @@ class LaneApp(tk.Tk):
                      font=("Segoe UI", 9, "bold")).pack(anchor="w")
             tk.Label(card, textvariable=var, bg=PANEL, fg=TEXT,
                      font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(5, 0))
+        tk.Label(main, textvariable=self.algorithm_method, bg=BG, fg=GOOD, anchor="w",
+                 font=("Segoe UI", 10, "bold")).pack(fill="x", pady=(5,0))
         self.progressbar = ttk.Progressbar(main, variable=self.progress_percent, maximum=100,
                                            style="Horizontal.TProgressbar")
         self.progressbar.pack(fill="x", pady=(10, 0))
@@ -197,9 +210,9 @@ class LaneApp(tk.Tk):
         settings.validate()
         return settings
 
-    def _load_example_if_exists(self):
+    def _load_example_if_exists(self, force=False):
         example = APP_ROOT / "ornekler" / "ornek_yol_duz.png"
-        if example.is_file() and not self.is_processing:
+        if example.is_file() and not self.is_processing and (force or self.current_file is None):
             self._open_image(example)
 
     def _select_image(self):
@@ -293,7 +306,8 @@ class LaneApp(tk.Tk):
         self.metric_left.set("BULUNDU" if detection.left else "BULUNAMADI")
         self.metric_right.set("BULUNDU" if detection.right else "BULUNAMADI")
         self.metric_offset.set(f"{detection.offset_px:+.1f} px" if detection.offset_px is not None else "ÖLÇÜLEMEDİ")
-        self.metric_segments.set(str(detection.segment_count))
+        self.metric_segments.set(str(detection.segment_count) if detection.segment_count else "—")
+        self.algorithm_method.set("Kullanılan yöntem: " + detection.method)
 
     def _detect(self):
         if self.is_processing:
@@ -310,11 +324,12 @@ class LaneApp(tk.Tk):
             self._run_video(settings)
         else:
             try:
-                detection = LaneDetector(settings).detect(self.current_image)
+                detection = InferenceEngine(settings, mode=self._mode()).detect(self.current_image)
             except Exception as exc:
                 messagebox.showerror("İşlem hatası", str(exc))
                 return
             self.current_detection = detection
+            self.stage_combo.configure(values=list(detection.stages.keys()))
             self.selected_stage.set("08 Sonuc")
             self.current_display = detection.frame
             self._render_preview()
@@ -322,6 +337,9 @@ class LaneApp(tk.Tk):
             self.progress_percent.set(100)
             self.progress_text.set("Görüntü analizi tamamlandı")
             self.status.set("Tespit tamamlandı. Çıktıyı ve ara adımları kaydedebilirsiniz.")
+
+    def _mode(self):
+        return self.mode_keys.get(self.mode_var.get(), "auto")
 
     def _run_video(self, settings):
         name = filedialog.asksaveasfilename(title="Video çıktısının konumu", defaultextension=".mp4",
@@ -336,6 +354,7 @@ class LaneApp(tk.Tk):
         if dest.is_file() and not messagebox.askyesno("Üzerine yaz", "Bu çıktı zaten var. Üzerine yazılsın mı?"):
             return
         self.output_video = dest
+        chosen_mode = self._mode()
         self.stop_event.clear()
         self.is_processing = True
         self.btn_detect.configure(state="disabled")
@@ -353,7 +372,7 @@ class LaneApp(tk.Tk):
                     except queue.Full:
                         pass
                 summary = process_video(self.current_file, dest, settings, on_progress,
-                                        self.stop_event.is_set)
+                                        self.stop_event.is_set, mode=chosen_mode)
                 self.messages.put(("complete", summary))
             except Exception as exc:
                 self.messages.put(("error", str(exc)))
@@ -423,7 +442,7 @@ class LaneApp(tk.Tk):
         if folder:
             try:
                 save_stages(self.current_detection.stages, folder)
-                self.status.set("8 işlem aşaması kaydedildi: " + folder)
+                self.status.set(f"{len(self.current_detection.stages)} işlem aşaması kaydedildi: " + folder)
             except Exception as exc:
                 messagebox.showerror("Kaydetme hatası", str(exc))
 

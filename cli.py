@@ -5,6 +5,7 @@ import argparse
 import json
 from pathlib import Path
 from lanevision.core import LaneSettings
+from lanevision.engine import MODES
 from lanevision.processing import VIDEO_EXTENSIONS, process_image, process_video
 
 
@@ -17,6 +18,7 @@ def main():
     parser.add_argument("--canny-high", type=int, default=160)
     parser.add_argument("--roi-top", type=float, default=0.59)
     parser.add_argument("--hough-threshold", type=int, default=28)
+    parser.add_argument("--mode", choices=tuple(MODES), default="auto", help="auto, ai, hybrid, classic")
     args = parser.parse_args()
     if not args.input.is_file():
         parser.error(f"Girdi bulunamadı: {args.input}")
@@ -27,11 +29,11 @@ def main():
         video = args.input.suffix.lower() in VIDEO_EXTENSIONS
         output = args.output or Path("sonuc.mp4" if video else "sonuc.png")
         if video:
-            data = process_video(args.input, output, settings)
+            data = process_video(args.input, output, settings, mode=args.mode)
             print(json.dumps(data.to_dict(), ensure_ascii=False, indent=2))
         else:
             stages = output.with_name(output.stem + "_adimlar") if args.steps else None
-            data = process_image(args.input, output, settings, stages)
+            data = process_image(args.input, output, settings, stages, mode=args.mode)
             print("Görüntü kaydedildi:", output)
             print(json.dumps(data.stats(), ensure_ascii=False, indent=2))
     except (ValueError, OSError) as exc:

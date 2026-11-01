@@ -1,17 +1,25 @@
-ŞERİT GÖRÜ — HIZLI BAŞLANGIÇ
+SERIT GORU AI V2 - HIZLI BASLANGIC
 
-1) Python 3.10+ kurun (kurulumda Add Python to PATH).
-2) Windows kullanıyorsanız baslat_windows.bat dosyasını açın.
-3) Açılan uygulamada ÖRNEK GÖRÜNTÜYÜ AÇ seçin.
-4) ŞERİTLERİ TESPİT ET düğmesine tıklayın.
-5) Sonucu ve işlem adımlarını kaydedin.
-6) Video için VİDEO AÇ -> ŞERİTLERİ TESPİT ET -> MP4 çıktı konumu seçin.
+1) Python 3.10+ kurun. Windows'ta Add Python to PATH secin.
+2) AI'li surum: baslat_ai_windows.bat dosyasini acin.
+   AI kutuphanesi olmadan: baslat_windows.bat (gelismis/kendiliginden yedek).
+3) Goruntu Ac > ornekler/ornek_yol_duz.png dosyasini secin.
+4) Tespit yontemi > Otomatik (AI + egrisel yedek) secin.
+5) SERITLERI TESPIT ET > iki siniri ve sonucu gozlemleyin.
+6) Basariyi gercek fotolarda artirmak icin: docs/AI_EGITIM_REHBERI.md
 
-VS Code terminalinde elle çalıştırma:
-  python -m pip install -r requirements.txt
+KOMUT SATIRI:
+  python -m pip install -r requirements-ai.txt
   python app.py
+  python cli.py --input ornekler/ornek_yol_duz.png --output sonuc.png --mode auto --steps
 
-Ayrıntılı açıklamalar: README.md
-Düzenlenebilir akademik rapor: docs/PROJE_RAPORU_TASLAGI.md
+AI ETIKETLEME:
+  python etiketle.py --image yol.png --name yol_001
+AI EGITIM:
+  python egit.py --synthetic 120 --epochs 10 --batch 4
 
-UYARI: Örnek yollar sentetiktir. Bu araç gerçek sürüş için uygun değildir.
+Modeller/serit_unet_demo.pt: Gercekten egitilmis bir ornek model.
+Sinir: 120 sentetik veri ve 1 kullanici gorselinin kabaca etiketlenmis haliyle egitildi.
+Sentetik dogrulama IoU=0.6524; gercek yol dogrulugu OLARAK YORUMLANAMAZ.
+
+UYARI: Bu uygulama arac kontrolu icin kullanilamaz.

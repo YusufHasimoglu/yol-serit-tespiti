@@ -10,7 +10,8 @@ from typing import Callable
 import cv2
 import numpy as np
 
-from .core import Detection, LaneDetector, LaneSettings, settings_dict
+from .core import Detection, LaneSettings, settings_dict
+from .engine import InferenceEngine
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".m4v"}
@@ -50,10 +51,10 @@ def save_stages(stages: dict[str, np.ndarray], folder: str | Path) -> Path:
 
 
 def process_image(source: str | Path, output: str | Path, settings: LaneSettings | None = None,
-                  stages_dir: str | Path | None = None) -> Detection:
+                  stages_dir: str | Path | None = None, mode: str = "auto") -> Detection:
     if Path(source).resolve() == Path(output).resolve():
         raise ValueError("Giriş ve çıktı dosyası farklı olmalıdır.")
-    detection = LaneDetector(settings).detect(read_image(source))
+    detection = InferenceEngine(settings,mode=mode).detect(read_image(source))
     write_image(output, detection.frame)
     if stages_dir is not None:
         save_stages(detection.stages, stages_dir)
@@ -86,7 +87,7 @@ class VideoSummary:
 def process_video(source: str | Path, output: str | Path, settings: LaneSettings | None = None,
                   progress: Callable[[int, int, Detection], None] | None = None,
                   cancelled: Callable[[], bool] | None = None,
-                  report: bool = True) -> VideoSummary:
+                  report: bool = True, mode: str = "auto") -> VideoSummary:
     """Uzun videoları kare kare işle; tüm videoyu belleğe alma.
 
     progress callback her 5 karede çağrılır. Her çağrının görüntüsü geçicidir.
@@ -117,7 +118,7 @@ def process_video(source: str | Path, output: str | Path, settings: LaneSettings
                                  fps, (width, height))
         if not writer.isOpened():
             raise OSError("MP4 video yazıcısı başlatılamadı. Codec desteklerini kontrol edin.")
-        detector = LaneDetector(settings)
+        detector = InferenceEngine(settings,mode=mode)
         rows = []
         frames, n_both, n_left, n_right = 0, 0, 0, 0
         is_cancelled = False
@@ -147,7 +148,7 @@ def process_video(source: str | Path, output: str | Path, settings: LaneSettings
                 csv_writer.writeheader()
                 csv_writer.writerows(rows)
             with json_path.open("w", encoding="utf-8") as stream:
-                json.dump({"video": summary.to_dict(), "parametreler": settings_dict(detector.settings)},
+                json.dump({"video": summary.to_dict(), "parametreler": settings_dict(detector.settings), "yontem": mode},
                           stream, ensure_ascii=False, indent=2)
         return summary
     finally:

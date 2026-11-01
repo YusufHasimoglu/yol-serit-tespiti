@@ -58,6 +58,7 @@ class Detection:
     offset_px: Optional[float]
     confidence: float
     segment_count: int
+    method: str = "Klasik Hough"
 
     @property
     def both_found(self) -> bool:
@@ -71,6 +72,7 @@ class Detection:
             "merkez_sapmasi_piksel": round(self.offset_px, 2) if self.offset_px is not None else None,
             "gorsel_destek_skoru": round(self.confidence, 3),
             "hough_segment_sayisi": self.segment_count,
+            "yontem": self.method,
         }
 
 
