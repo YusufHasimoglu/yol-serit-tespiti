@@ -5,7 +5,8 @@ import numpy as np
 from lanevision.continuity import detect_continuous
 from lanevision.engine import MODES
 from lanevision.gui import USER_VISIBLE_MODES
-from lanevision.yolopv2 import _mask_from_outputs, prepare_yolopv2_input
+from lanevision.yolopv2 import (DEFAULT_YOLOPV2_FEEDBACK_WEIGHTS, _mask_from_outputs,
+                                prepare_yolopv2_input)
 
 
 class _Tensor:
@@ -67,6 +68,10 @@ def test_yolopv2_guidance_keeps_a_valid_dashed_solid_pair():
 def test_yolopv2_is_an_explicit_user_selectable_mode():
     assert "yolopv2" in MODES
     assert "YOLOPv2" in MODES["yolopv2"]
+
+
+def test_yolopv2_feedback_model_is_a_separate_local_checkpoint():
+    assert DEFAULT_YOLOPV2_FEEDBACK_WEIGHTS.name == "yolopv2_feedback_unet.pt"
 
 
 def test_desktop_menu_exposes_only_clear_user_choices():

@@ -86,3 +86,19 @@ python indir_yolopv2.py
 
 İndirme yaklaşık 150 MB'tır ve `modeller/yolopv2_bdd100k.pt` olarak yalnızca
 yerel bilgisayarınıza kaydedilir; GitHub'a yüklenmez.
+
+### Kullanıcı düzeltmeleriyle geliştirme
+
+Uygulamadaki **“YOLOPv2 GERİ BİLDİRİMİNİ EĞİT”** düğmesi; sizin doğru/hatalı
+olarak kaydedip çizdiğiniz fotoğraf ve video karelerinden ayrı bir yerel
+düzeltici model üretir. Bu katman YOLOPv2'nin şerit ve sürülebilir-yol
+maskesine eklenir; sol/sağ ile düz/kesik ayrımını yerel görüntülerinize göre
+iyileştirir. Resmî YOLOPv2 ağırlığı değişmez. En az 24 tam etiketli örnek
+gerekir. İsterseniz aynı eğitimi komut satırından da başlatabilirsiniz:
+
+```bash
+python egit_yolopv2_geri_bildirim.py
+```
+
+Eğitilen ağırlık ve raporu yalnızca `modeller/` klasöründe bilgisayarınızda
+kalır; GitHub'a yüklenmez.

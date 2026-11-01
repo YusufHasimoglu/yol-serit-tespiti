@@ -21,6 +21,11 @@ from .core import Detection, LaneSettings
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_YOLOPV2_WEIGHTS = APP_ROOT / "modeller" / "yolopv2_bdd100k.pt"
+# This compact four-class correction model is trained only from the user's
+# confirmed drawings.  The large YOLOPv2 backbone remains the official,
+# immutable TorchScript model; the feedback layer adapts its rendering to
+# local yellow paint, worn markings and dashed/solid styles.
+DEFAULT_YOLOPV2_FEEDBACK_WEIGHTS = APP_ROOT / "modeller" / "yolopv2_feedback_unet.pt"
 _INPUT_WIDTH = 640
 _INPUT_HEIGHT = 384
 _VERTICAL_PAD = 12
@@ -30,6 +35,11 @@ _MODEL_LOCK = threading.RLock()
 
 def yolopv2_available(weights: str | Path = DEFAULT_YOLOPV2_WEIGHTS) -> bool:
     """YOLOPv2 TorchScript ağırlığının bu bilgisayarda hazır olup olmadığını döndür."""
+    return Path(weights).is_file()
+
+
+def yolopv2_feedback_available(weights: str | Path = DEFAULT_YOLOPV2_FEEDBACK_WEIGHTS) -> bool:
+    """Kullanıcı çizimleriyle eğitilmiş yerel düzeltici ağırlığı var mı?"""
     return Path(weights).is_file()
 
 
@@ -92,7 +102,8 @@ def _mask_visual(frame: np.ndarray, lane_mask: np.ndarray, road_mask: np.ndarray
 class YOLOPv2Detector:
     """CPU'da TorchScript olarak çalışan YOLOPv2 şerit/yol sarmalayıcısı."""
 
-    def __init__(self, weights: str | Path = DEFAULT_YOLOPV2_WEIGHTS):
+    def __init__(self, weights: str | Path = DEFAULT_YOLOPV2_WEIGHTS,
+                 feedback_weights: str | Path = DEFAULT_YOLOPV2_FEEDBACK_WEIGHTS):
         self.weights = Path(weights)
         if not self.weights.is_file():
             raise FileNotFoundError(f"YOLOPv2 modeli bulunamadı: {self.weights}")
@@ -112,6 +123,20 @@ class YOLOPv2Detector:
                     raise RuntimeError(f"YOLOPv2 modeli açılamadı: {exc}") from exc
                 _MODEL_CACHE[self.weights] = model
         self.model = model
+        self.feedback = None
+        self.feedback_warning = None
+        feedback_path = Path(feedback_weights)
+        if feedback_path.is_file():
+            try:
+                from .ai_model import AISegmenter
+                feedback = AISegmenter(feedback_path, threshold=.42)
+                if feedback.output_channels != 4:
+                    raise ValueError("geri bildirim modeli dört düz/kesik kanalı içermiyor")
+                self.feedback = feedback
+            except (ImportError, FileNotFoundError, RuntimeError, ValueError) as exc:
+                # The primary YOLOPv2 model remains usable if a locally trained
+                # experimental checkpoint is incomplete or incompatible.
+                self.feedback_warning = str(exc)
 
     def masks(self, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         prepared = prepare_yolopv2_input(frame)
@@ -127,14 +152,31 @@ class YOLOPv2Detector:
         settings = settings or LaneSettings()
         settings.validate()
         lane_mask, road_mask = self.masks(frame)
-        result = detect_continuous(frame, settings, lane_evidence=lane_mask, road_evidence=road_mask)
+        feedback_probabilities = None
+        if self.feedback is not None:
+            feedback_probabilities = self.feedback.probabilities(frame)
+        result = detect_continuous(
+            frame, settings, lane_evidence=lane_mask, road_evidence=road_mask,
+            probabilities=feedback_probabilities,
+            channel_layout=(self.feedback.channel_layout if self.feedback is not None else None),
+        )
         lane_view, road_view = _mask_visual(frame, lane_mask, road_mask)
         result.stages.update({
             "09 YOLOPv2 şerit maskesi": lane_view,
             "10 YOLOPv2 sürülebilir alan": road_view,
         })
+        if feedback_probabilities is not None:
+            feedback_view = np.zeros_like(frame)
+            solid = np.maximum(feedback_probabilities[:, :, 0], feedback_probabilities[:, :, 2])
+            dashed = np.maximum(feedback_probabilities[:, :, 1], feedback_probabilities[:, :, 3])
+            feedback_view[:, :, 0] = (solid * 255).astype(np.uint8)
+            feedback_view[:, :, 1] = np.maximum((solid * 255).astype(np.uint8),
+                                                 (dashed * 127).astype(np.uint8))
+            feedback_view[:, :, 2] = (dashed * 255).astype(np.uint8)
+            result.stages["11 Kullanıcı eğitimi düzeltmesi"] = feedback_view
         suffix = "maske ile doğrulandı" if getattr(result, "ai_evidence_used", False) else "fiziksel boya yedeği"
-        result.method = f"Yapay zekâ (YOLOPv2 şerit + alan, {suffix})"
+        feedback_note = " + kullanıcı eğitimi" if self.feedback is not None else ""
+        result.method = f"Yapay zekâ (YOLOPv2 şerit + alan, {suffix}{feedback_note})"
         result.yolopv2_lane_mask = lane_mask
         result.yolopv2_road_mask = road_mask
         return result

@@ -21,7 +21,7 @@ from .feedback import (find_saved_review, render_reviewed_annotation,
 from .live_video import LiveVideoSession
 from .video_feedback import load_video_anchors, save_video_anchor
 from .ufld import DEFAULT_UFLD_WEIGHTS
-from .yolopv2 import DEFAULT_YOLOPV2_WEIGHTS
+from .yolopv2 import DEFAULT_YOLOPV2_FEEDBACK_WEIGHTS, DEFAULT_YOLOPV2_WEIGHTS
 from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages, write_image
 from .scene import analyze_scene
 
@@ -112,13 +112,14 @@ class LaneApp(tk.Tk):
         from .ai_model import DEFAULT_WEIGHTS
         ufld_ready=DEFAULT_UFLD_WEIGHTS.is_file()
         yolopv2_ready=DEFAULT_YOLOPV2_WEIGHTS.is_file()
+        feedback_ready=DEFAULT_YOLOPV2_FEEDBACK_WEIGHTS.is_file()
         if importlib.util.find_spec("torch") is None:
             self.ai_status_var.set("●  AI PASİF: YOLOPv2/U-Net için PyTorch gerekli")
         else:
             ready=[]
             if DEFAULT_WEIGHTS.is_file():ready.append("U-Net")
             if ufld_ready:ready.append("UFLD V2")
-            if yolopv2_ready:ready.append("YOLOPv2")
+            if yolopv2_ready:ready.append("YOLOPv2" + (" + kullanıcı eğitimi" if feedback_ready else ""))
             if ready:
                 self.ai_status_var.set("●  AI HAZIR: " + " + ".join(ready))
             else:
@@ -274,7 +275,7 @@ class LaneApp(tk.Tk):
                                           bg=PANEL, fg=TEXT, activebackground="#294767", bd=0,
                                           font=("Segoe UI", 9, "bold"), padx=12, pady=6, cursor="hand2")
         self.btn_feedback_fix.pack(side="left")
-        self.btn_feedback_train = tk.Button(feedback_actions, text="ADAY MODELİ EĞİT",
+        self.btn_feedback_train = tk.Button(feedback_actions, text="YOLOPv2 GERİ BİLDİRİMİNİ EĞİT",
                                             command=self._train_feedback_model,
                                             bg=BLUE, fg="#00172a", activebackground="#88dbff", bd=0,
                                             font=("Segoe UI", 9, "bold"), padx=12, pady=6, cursor="hand2")
@@ -888,31 +889,26 @@ class LaneApp(tk.Tk):
         self._launch_labeler(correction=True)
 
     def _train_feedback_model(self):
-        """Train a local candidate; never overwrite the current model silently."""
+        """Train the separate local correction layer used alongside YOLOPv2."""
         count=style_sample_count(APP_ROOT / "data" / "gercek")
         if count<24:
             messagebox.showinfo("Daha fazla etiket gerekli",
-                                f"Aday eğitim için en az 24 doğru etiketli fotoğraf önerilir. Şu anda: {count}.")
+                                f"YOLOPv2 geri bildirimi için en az 24 tam etiketli fotoğraf gerekir. Şu anda: {count}.")
             return
         if not messagebox.askyesno(
-            "Aday modeli eğit",
-            f"{count} yerel etiketle aday model eğitilecek. Bu işlem sürebilir ve mevcut modeli değiştirmez. Devam edilsin mi?"
+            "YOLOPv2 geri bildirimini eğit",
+            f"{count} yerel etiketle düz/kesik düzeltici eğitilecek. Resmî YOLOPv2 modeli korunur; tamamlanan yerel düzeltici sonraki tespitlerde kullanılır. Devam edilsin mi?"
         ):
             return
-        # Feedback-trained weights and their report are experiment artefacts.
-        # Keep them out of the application-model directory: users must review
-        # the external validation before promoting a candidate manually.
-        candidate=APP_ROOT / "sonuclar" / "geri_bildirim" / "serit_unet_geri_bildirim_candidate.pt"
         try:
             subprocess.Popen([
-                sys.executable, str(APP_ROOT / "egit.py"), "--style-aware", "--synthetic", "240",
-                "--epochs", "15", "--batch", "4", "--out", str(candidate),
+                sys.executable, str(APP_ROOT / "egit_yolopv2_geri_bildirim.py"),
             ], cwd=str(APP_ROOT))
         except OSError as exc:
             messagebox.showerror("Eğitim başlatılamadı", str(exc))
             return
-        self.feedback_status.set("Aday model eğitimi arka planda başladı. Mevcut model korunuyor; aday önce test edilmelidir.")
-        self.status.set("Geri bildirim aday modeli eğitiliyor. Uygulama kullanılmaya devam edebilir.")
+        self.feedback_status.set("YOLOPv2 geri bildirim eğitimi arka planda başladı. Resmî model korunur; yeni düzeltici eğitim sonunda kullanılır.")
+        self.status.set("YOLOPv2 kullanıcı düzelticisi eğitiliyor. Uygulama kullanılmaya devam edebilir.")
 
     def _label_current_image(self):
         self._launch_labeler(correction=False)

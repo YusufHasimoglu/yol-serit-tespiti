@@ -27,6 +27,9 @@ __pycache__/
 /modeller/ufldv2_lane_detection.onnx
 # YOLOPv2'nin resmî TorchScript ağırlığı kullanıcı bilgisayarında tutulur.
 /modeller/yolopv2_bdd100k.pt
+# Kullanıcı düzeltmelerinden üretilen YOLOPv2 yardımcı modeli yereldir.
+/modeller/yolopv2_feedback_unet.pt
+/modeller/yolopv2_feedback_egitim_raporu.json
 # Araştırma sırasında klonlanan resmî kaynak depoları uygulama kaynağı değildir.
 /.third_party/
 /sonuclar/

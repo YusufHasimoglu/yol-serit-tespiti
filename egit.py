@@ -27,6 +27,8 @@ def main():
                    help='Yerelde seçilmiş, farklı video anahtar karelerinin JSON listesi')
     p.add_argument('--limit',type=int,default=0)
     p.add_argument('--out',type=Path,default=Path('modeller/serit_unet_demo.pt'))
+    p.add_argument('--report',type=Path,
+                   help='Eğitim raporunun yazılacağı JSON yolu; varsayılan ağırlığın yanıdır.')
     p.add_argument('--resume',action='store_true',help='Son en iyi ağırlıklarla ek eğitim turları')
     p.add_argument('--style-aware',action='store_true',
                    help='Kullanıcı etiketlerindeki sol/sağ düz-kesik dört sınıfını eğit')
@@ -148,6 +150,7 @@ def main():
             'temporal_augment_per_user_frame':args.temporal_augment,
             'best_validation_iou':best,'output_channels':output_channels,'channel_layout':channel_layout,
             'device':device,'history':history,'weights':str(args.out)}
-    (args.out.parent/'egitim_raporu.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+    report_path=args.report or (args.out.parent/'egitim_raporu.json')
+    report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     print('Eğitim tamamlandı:',args.out,' en iyi sentetik val IoU:',round(best,3))
 if __name__=='__main__':main()

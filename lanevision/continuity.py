@@ -359,16 +359,19 @@ def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None,c
         raw=observed_raw
         lefts=_candidates(raw,'left');rights=_candidates(raw,'right')
         left,right=_pair(lefts,rights,th,tw)
-    if probabilities is not None:
-        for item in lefts:
-            _apply_ai_style(item,prob,channel_layout,'left')
-        for item in rights:
-            _apply_ai_style(item,prob,channel_layout,'right')
     if evidence_used:
         # Dashed/solid reporting must be measured from the original paint
         # pixels, not from the model gate (which can omit a dash entirely).
         if left is not None:left.update(_marking_metrics(observed_raw,left))
         if right is not None:right.update(_marking_metrics(observed_raw,right))
+    if probabilities is not None:
+        # Apply the learned solid/dashed correction after recovering native
+        # paint metrics.  Otherwise an evidence gate could accidentally erase
+        # the feedback model's explicit four-class correction.
+        for item in lefts:
+            _apply_ai_style(item,prob,channel_layout,'left')
+        for item in rights:
+            _apply_ai_style(item,prob,channel_layout,'right')
     # Geometri doğrulanmışsa düz/düz, düz/kesik ve kesik/kesik çiftleri de
     # geçerlidir.  Tür bilgisi, çizgiyi elemek için değil arayüzde belirtmek
     # için kullanılır.
