@@ -1,0 +1,30 @@
+{
+  "video": {
+    "cikti": "ornek_sonuclar/ornek_video_sonuc.mp4",
+    "islenen_kare": 36,
+    "iki_serit_tespit_kare": 36,
+    "sol_serit_tespit_kare": 36,
+    "sag_serit_tespit_kare": 36,
+    "iki_serit_tespit_orani_yuzde": 100.0,
+    "fps_kaynak": 12.0,
+    "iptal_edildi": false
+  },
+  "parametreler": {
+    "canny_low": 55,
+    "canny_high": 160,
+    "blur_kernel": 5,
+    "roi_top": 0.59,
+    "roi_left": 0.06,
+    "roi_right": 0.94,
+    "roi_top_left": 0.42,
+    "roi_top_right": 0.58,
+    "hough_threshold": 28,
+    "min_line_length": 24,
+    "max_line_gap": 36,
+    "min_abs_slope": 0.3,
+    "max_abs_slope": 8.0,
+    "overlay_alpha": 0.34,
+    "line_thickness": 8,
+    "smoothing": 0.6
+  }
+}
