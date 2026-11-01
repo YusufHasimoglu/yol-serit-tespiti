@@ -30,12 +30,14 @@ def main():
     p.add_argument('--resume',action='store_true',help='Son en iyi ağırlıklarla ek eğitim turları')
     p.add_argument('--style-aware',action='store_true',
                    help='Kullanıcı etiketlerindeki sol/sağ düz-kesik dört sınıfını eğit')
+    p.add_argument('--temporal-augment',type=int,default=0,
+                   help='Her kullanıcı düzeltmesinden üretilecek video-kare benzeri çeşit sayısı')
     args=p.parse_args()
-    if args.synthetic<0 or args.epochs<1 or args.batch<1: p.error('Eğitim sayıları geçersiz')
+    if args.synthetic<0 or args.epochs<1 or args.batch<1 or args.temporal_augment<0: p.error('Eğitim sayıları geçersiz')
     import torch
     from torch.utils.data import DataLoader,Dataset
     from lanevision.training_data import (synthetic_sample,load_user_samples,
-                                          tusimple_samples,bdd_style_samples)
+                                          tusimple_samples,bdd_style_samples,temporal_frame_variants)
     from lanevision.ai_model import build_model
     torch.manual_seed(args.seed);np.random.seed(args.seed);random.seed(args.seed)
     torch.set_num_threads(min(5,torch.get_num_threads()))
@@ -53,8 +55,13 @@ def main():
         # Do not silently turn unknown styles into fabricated targets.
         if args.tusimple_json:
             p.error('Düz/kesik BDD eğitimi ile etiketsiz TuSimple maskeleri aynı modelde karıştırılamaz.')
-    for e in (load_user_samples(args.real_folder,style_aware=style_aware) or []):
-        examples.append(e);origins.append('etiketli-gercek');groups.append(f'kullanici-{len(groups)}')
+    for user_index,e in enumerate(load_user_samples(args.real_folder,style_aware=style_aware) or []):
+        # Türetilen komşu kareler aynı kaynak grubunda kalır; böylece aynı
+        # görüntünün versiyonları eğitim ve doğrulama arasında sızmaz.
+        group=f'kullanici-{user_index}'
+        examples.append(e);origins.append('etiketli-gercek');groups.append(group)
+        for variant in temporal_frame_variants(e[0],e[1],args.temporal_augment,args.seed+user_index):
+            examples.append(variant);origins.append('etiketli-video-cesitlendirme');groups.append(group)
     if args.tusimple_json and args.tusimple_root:
         for e in tusimple_samples(args.tusimple_root,args.tusimple_json,args.limit or None):
             examples.append(e);origins.append('TuSimple');groups.append(f'tusimple-{len(groups)}')
@@ -138,6 +145,7 @@ def main():
                         'note':'Doğrulama görüntüleri eğitimden ayrıdır; bu ölçüm gerçek sürüş güvenliği garantisi değildir.'},args.out)
             model.to(device)
     report={'train_images':len(train),'validation_images':len(valids),'source_counts':{k:origins.count(k) for k in sorted(set(origins))},
+            'temporal_augment_per_user_frame':args.temporal_augment,
             'best_validation_iou':best,'output_channels':output_channels,'channel_layout':channel_layout,
             'device':device,'history':history,'weights':str(args.out)}
     (args.out.parent/'egitim_raporu.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')

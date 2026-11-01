@@ -109,6 +109,108 @@ class ManualLaneAnchor:
         }
         self.prediction_frames = 0
 
+    @staticmethod
+    def _ordered_endpoints(line: tuple[tuple[int, int], tuple[int, int]] | None):
+        """Bir tespit doğrusunun alt ve üst uçlarını, verilen sıradan bağımsız al."""
+        if line is None or len(line) != 2:
+            return None
+        first, second = line
+        if len(first) != 2 or len(second) != 2:
+            return None
+        bottom, top = sorted((first, second), key=lambda point: point[1], reverse=True)
+        return np.asarray(bottom, np.float32), np.asarray(top, np.float32)
+
+    def _candidate_is_compatible(self, candidate: Detection, frame: np.ndarray) -> bool:
+        """Yeni ölçümün kullanıcı yolunu mantıksız biçimde değiştirmediğini denetle.
+
+        Genel algılayıcı yalnızca takip koptuktan sonra ölçüm adayıdır. Adayın
+        kullanıcının son güvenilir eğrisiyle hem alt/üst konumu hem de şerit
+        genişliği bakımından tutarlı olması gerekir. Böylece kaldırım, bariyer
+        veya karşı yöndeki yol yeni şerit gibi kabul edilmez.
+        """
+        if candidate is None or candidate.left is None or candidate.right is None:
+            return False
+        left = self._ordered_endpoints(candidate.left)
+        right = self._ordered_endpoints(candidate.right)
+        if left is None or right is None:
+            return False
+        (left_bottom, left_top), (right_bottom, right_top) = left, right
+        h, w = frame.shape[:2]
+        # Aday iki sınır birbiriyle kesişmemeli ve yeterli ortak yüksekliği
+        # paylaşmalıdır. Bu, tek başına çok sayıda yanlış Hough eşleşmesini eler.
+        common_top = max(float(left_top[1]), float(right_top[1]))
+        common_bottom = min(float(left_bottom[1]), float(right_bottom[1]))
+        if common_bottom - common_top < h * .12:
+            return False
+        ys = np.linspace(common_top, common_bottom, 16)
+        candidate_left = np.interp(ys, [left_top[1], left_bottom[1]], [left_top[0], left_bottom[0]])
+        candidate_right = np.interp(ys, [right_top[1], right_bottom[1]], [right_top[0], right_bottom[0]])
+        if np.any(candidate_left >= candidate_right):
+            return False
+
+        expected_left = np.polyval(self.last_polynomials["left"], ys)
+        expected_right = np.polyval(self.last_polynomials["right"], ys)
+        # Genişliğe ölçeklenen tolerans, hafif virajda yeniden bağlanmaya izin
+        # verir; ama tüm görüntüde başka bir şeride sıçramayı engeller.
+        position_limit = max(32.0, w * .105) + self.prediction_frames * 2.0
+        width_limit = max(52.0, w * .16)
+        candidate_width = candidate_right - candidate_left
+        expected_width = expected_right - expected_left
+        return (float(np.median(np.abs(candidate_left - expected_left))) <= position_limit and
+                float(np.median(np.abs(candidate_right - expected_right))) <= position_limit and
+                float(np.median(np.abs(candidate_width - expected_width))) <= width_limit)
+
+    def reanchor_if_compatible(self, frame: np.ndarray, candidate: Detection) -> Detection | None:
+        """Uyumlu bir ölçümü kullanıcı çizim türlerini koruyarak yeni ankraj yap.
+
+        Dönen görünümde yeni algılayıcının çizgi türü kullanılmaz: kullanıcı
+        tarafından çizilmiş düz/kesik bilgisi korunur. Uyum yoksa ``None``
+        döner; çağıran taraf alakasız aday çizgiyi göstermemelidir.
+        """
+        if frame is None or frame.ndim != 3 or frame.shape[:2] != self.previous_gray.shape:
+            return None
+        if not self._candidate_is_compatible(candidate, frame):
+            return None
+        new_states: dict[str, _SideState] = {}
+        new_polynomials: dict[str, np.ndarray] = {}
+        for side, line in (("left", candidate.left), ("right", candidate.right)):
+            endpoints = self._ordered_endpoints(line)
+            if endpoints is None:
+                return None
+            bottom, top = endpoints
+            ys = np.linspace(float(top[1]), float(bottom[1]), 36)
+            xs = np.linspace(float(top[0]), float(bottom[0]), 36)
+            points = np.column_stack([xs, ys]).astype(np.float32)
+            fitted = _robust_poly(points)
+            if fitted is None:
+                return None
+            poly, kept = fitted
+            previous = self.sides[side]
+            new_states[side] = _SideState(previous.kind, kept.reshape(-1, 1, 2).astype(np.float32),
+                                          previous.spans, float(kept[:, 1].min()), float(kept[:, 1].max()))
+            new_polynomials[side] = poly
+        self.previous_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        self.sides = new_states
+        self.last_polynomials = new_polynomials
+        self.prediction_frames = 0
+        return self._render(frame, new_polynomials, new_states, .68, .68,
+                            "Kullanıcı ankrajı: uyumlu ölçümle yeniden bağlandı")
+
+    def warning_detection(self, frame: np.ndarray) -> Detection:
+        """Ankraj güveni bitince yanlış çizgi çizmek yerine açık uyarı üret."""
+        output = frame.copy()
+        h, w = output.shape[:2]
+        cv2.rectangle(output, (8, 7), (min(w - 5, 760), 48), (48, 31, 18), -1)
+        cv2.putText(output, "KULLANICI ANKRAJI KOPTU | DUZELTME BEKLENIYOR", (17, 34),
+                    cv2.FONT_HERSHEY_SIMPLEX, .54, (242, 244, 248), 2, cv2.LINE_AA)
+        det = Detection(output, {"01 Orijinal": frame.copy(), "08 Sonuc": output,
+                                 "11 Kullanıcı ankrajı": output},
+                        None, None, None, .0, 0)
+        det.method = "Kullanıcı ankrajı güveni düşük — düzeltme bekliyor"
+        det.marking_types = (self.sides["left"].kind, self.sides["right"].kind)
+        det.lane_polynomials = (None, None)
+        return det
+
     def _track_side(self, state: _SideState, current_gray: np.ndarray) -> tuple[np.ndarray, _SideState, float] | None:
         next_points, status, errors = cv2.calcOpticalFlowPyrLK(
             self.previous_gray, current_gray, state.points, None,
@@ -195,6 +297,48 @@ class ManualLaneAnchor:
                 cv2.polylines(output, [part], False, color, thickness, cv2.LINE_AA)
         return full
 
+    def _render(self, frame: np.ndarray, polynomials: dict[str, np.ndarray],
+                states: dict[str, _SideState], left_coverage: float, right_coverage: float,
+                method: str) -> Detection | None:
+        """Kullanıcı çizim türleri ve kapalı alanla ankraj sonucunu oluştur."""
+        left_poly, right_poly = polynomials["left"], polynomials["right"]
+        left_state, right_state = states["left"], states["right"]
+        left_curve = _curve(left_poly, left_state.low, left_state.high)
+        right_curve = _curve(right_poly, right_state.low, right_state.high)
+        low, high = max(left_state.low, right_state.low), min(left_state.high, right_state.high)
+        if high - low < frame.shape[0] * .12:
+            return None
+        ys = np.linspace(low, high, 60)
+        left_x, right_x = np.polyval(left_poly, ys), np.polyval(right_poly, ys)
+        h, w = frame.shape[:2]
+        ordered = (left_x < right_x) & (left_x >= 0) & (right_x < w)
+        if int(ordered.sum()) < 20:
+            return None
+        ys = ys[ordered]
+        left_x, right_x = left_x[ordered], right_x[ordered]
+        overlay = np.zeros_like(frame)
+        lane_area = np.vstack([np.column_stack([left_x, ys]), np.column_stack([right_x[::-1], ys[::-1]])]).round().astype(np.int32)
+        cv2.fillPoly(overlay, [lane_area], (70, 177, 105))
+        output = cv2.addWeighted(frame, 1.0, overlay, self.settings.overlay_alpha, 0)
+        self._draw_side(output, left_poly, left_state, self.settings.line_thickness)
+        self._draw_side(output, right_poly, right_state, self.settings.line_thickness)
+        cv2.rectangle(output, (8, 7), (min(w - 5, 650), 48), (17, 29, 42), -1)
+        cv2.putText(output, "KULLANICI ANKRAJI | SERIT TAKIBI", (17, 34),
+                    cv2.FONT_HERSHEY_SIMPLEX, .62, (241, 249, 255), 2, cv2.LINE_AA)
+        bottom_y = float(ys.max())
+        left_bottom, right_bottom = float(np.polyval(left_poly, bottom_y)), float(np.polyval(right_poly, bottom_y))
+        left_end = (tuple(map(int, left_curve[-1])), tuple(map(int, left_curve[0])))
+        right_end = (tuple(map(int, right_curve[-1])), tuple(map(int, right_curve[0])))
+        confidence = min(1.0, (left_coverage + right_coverage) * .5)
+        det = Detection(output, {"01 Orijinal": frame.copy(), "08 Sonuc": output,
+                                 "11 Kullanıcı ankrajı": output},
+                        left_end, right_end, w / 2 - (left_bottom + right_bottom) / 2,
+                        confidence, len(left_state.points) + len(right_state.points))
+        det.method = method
+        det.lane_polynomials = ((left_curve, left_poly), (right_curve, right_poly))
+        det.marking_types = (left_state.kind, right_state.kind)
+        return det
+
     def track(self, frame: np.ndarray) -> Detection | None:
         """İlk çizimden türeyen sınırları yeni karede çiz; güven kaybında ``None`` döndür."""
         if frame is None or frame.ndim != 3 or frame.shape[:2] != self.previous_gray.shape:
@@ -218,46 +362,11 @@ class ManualLaneAnchor:
             tracked[side] = (self.last_polynomials[side], state, .30)
         left_poly, left_state, left_coverage = tracked["left"]
         right_poly, right_state, right_coverage = tracked["right"]
-        left_curve = _curve(left_poly, left_state.low, left_state.high)
-        right_curve = _curve(right_poly, right_state.low, right_state.high)
-        low, high = max(left_state.low, right_state.low), min(left_state.high, right_state.high)
-        if high - low < frame.shape[0] * .12:
-            self.previous_gray = current_gray
-            return None
-        ys = np.linspace(low, high, 60)
-        left_x, right_x = np.polyval(left_poly, ys), np.polyval(right_poly, ys)
-        h, w = frame.shape[:2]
-        ordered = (left_x < right_x) & (left_x >= 0) & (right_x < w)
-        if int(ordered.sum()) < 20:
-            self.previous_gray = current_gray
-            return None
-        ys = ys[ordered]
-        left_x, right_x = left_x[ordered], right_x[ordered]
-        overlay = np.zeros_like(frame)
-        lane_area = np.vstack([np.column_stack([left_x, ys]), np.column_stack([right_x[::-1], ys[::-1]])]).round().astype(np.int32)
-        cv2.fillPoly(overlay, [lane_area], (70, 177, 105))
-        output = cv2.addWeighted(frame, 1.0, overlay, self.settings.overlay_alpha, 0)
-        self._draw_side(output, left_poly, left_state, self.settings.line_thickness)
-        self._draw_side(output, right_poly, right_state, self.settings.line_thickness)
-        cv2.rectangle(output, (8, 7), (min(w - 5, 650), 48), (17, 29, 42), -1)
-        cv2.putText(output, "KULLANICI ANKRAJI | OPTIK SERIT TAKIBI", (17, 34),
-                    cv2.FONT_HERSHEY_SIMPLEX, .62, (241, 249, 255), 2, cv2.LINE_AA)
-        bottom_y = float(ys.max())
-        left_bottom, right_bottom = float(np.polyval(left_poly, bottom_y)), float(np.polyval(right_poly, bottom_y))
-        left_end = (tuple(map(int, left_curve[-1])), tuple(map(int, left_curve[0])))
-        right_end = (tuple(map(int, right_curve[-1])), tuple(map(int, right_curve[0])))
-        confidence = min(1.0, (left_coverage + right_coverage) * .5)
-        det = Detection(output, {"01 Orijinal": frame.copy(), "08 Sonuc": output,
-                                 "11 Kullanıcı ankrajı": output},
-                        left_end, right_end, w / 2 - (left_bottom + right_bottom) / 2,
-                        confidence, len(left_state.points) + len(right_state.points))
-        det.method = ("Kullanıcı ankrajlı öngörülü şerit takibi" if predicted
-                      else "Kullanıcı ankrajlı optik şerit takibi")
-        det.lane_polynomials = ((left_curve, left_poly), (right_curve, right_poly))
-        det.marking_types = (left_state.kind, right_state.kind)
         self.previous_gray = current_gray
         self.sides = {"left": left_state, "right": right_state}
         self.last_polynomials = {"left": left_poly, "right": right_poly}
         self.prediction_frames = self.prediction_frames + 1 if predicted else 0
-        return det
+        return self._render(frame, self.last_polynomials, self.sides, left_coverage, right_coverage,
+                            "Kullanıcı ankrajlı öngörülü şerit takibi" if predicted
+                            else "Kullanıcı ankrajlı optik şerit takibi")
 

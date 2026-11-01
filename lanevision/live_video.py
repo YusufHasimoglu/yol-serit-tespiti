@@ -75,9 +75,15 @@ class LiveVideoSession:
             if detection is not None:
                 anchored = True
             else:
-                # Bir karede güvenli takip kalmadığında eski kullanıcı
-                # eğrisini zorla uzatmak yerine açıkça normal tespiti kullan.
-                self.anchor = None
+                # Normal algılayıcı burada yalnızca "ölçüm adayı" üretir.
+                # Kullanıcı çiziminden uzak veya ters yöndeki çizgiler asla
+                # doğrudan gösterilmez; ankrajın geometrik denetiminden
+                # geçerse kullanıcı düz/kesik türleriyle yeniden bağlanır.
+                candidate = self.detector.detect(original, video=True)
+                detection = self.anchor.reanchor_if_compatible(original, candidate)
+                if detection is None:
+                    detection = self.anchor.warning_detection(original)
+                anchored = True
         if not anchored:
             detection = self.detector.detect(original, video=True)
         return LiveFrame(self.index, self.total, self.fps, original, detection, anchored)

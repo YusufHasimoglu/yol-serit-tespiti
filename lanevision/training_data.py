@@ -73,6 +73,43 @@ def synthetic_sample(seed:int, style_aware:bool=False):
     return img,masks
 
 
+def temporal_frame_variants(image: np.ndarray, mask: np.ndarray, count: int, seed: int):
+    """Bir kullanıcı düzeltmesinden kısa bir video akışı benzeri kareler üret.
+
+    Aynı şerit etiketi; küçük kamera sarsıntısı, parlaklık değişimi, ölçek ve
+    hareket bulanıklığı altında birlikte dönüştürülür. Maske en yakın komşu
+    örnekleme ile taşındığından düz/kesik sınıfları karışmaz. Bunlar yeni
+    gerçek kayıtlar değildir; eğitimde yalnızca düzeltme karesinin zaman
+    içindeki küçük değişimlerine dayanıklılık kazandırır.
+    """
+    if count < 0:
+        raise ValueError("Video çeşitlendirme sayısı negatif olamaz.")
+    if image is None or mask is None or image.ndim != 3 or mask.ndim != 3:
+        raise ValueError("BGR görüntü ve çok kanallı maske gerekli.")
+    if image.shape[:2] != mask.shape[:2]:
+        raise ValueError("Görüntü ve maske boyutları eşleşmelidir.")
+    rng = np.random.default_rng(seed)
+    h, w = image.shape[:2]
+    for _ in range(count):
+        angle = float(rng.uniform(-1.25, 1.25))
+        scale = float(rng.uniform(.975, 1.025))
+        transform = cv2.getRotationMatrix2D((w * .5, h * .5), angle, scale)
+        transform[:, 2] += (float(rng.uniform(-w * .045, w * .045)),
+                            float(rng.uniform(-h * .012, h * .012)))
+        moved_image = cv2.warpAffine(image, transform, (w, h), flags=cv2.INTER_LINEAR,
+                                     borderMode=cv2.BORDER_REFLECT_101)
+        moved_mask = cv2.warpAffine(mask, transform, (w, h), flags=cv2.INTER_NEAREST,
+                                    borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        gain = float(rng.uniform(.72, 1.25))
+        bias = float(rng.uniform(-18, 18))
+        moved_image = np.clip(moved_image.astype(np.float32) * gain + bias, 0, 255).astype(np.uint8)
+        if rng.random() < .45:
+            # Hafif bulanıklık, ardışık video karelerindeki kamera hareketini
+            # taklit eder; etikete uygulanmaz.
+            moved_image = cv2.GaussianBlur(moved_image, (3, 3), float(rng.uniform(.25, .8)))
+        yield moved_image, moved_mask
+
+
 def tusimple_samples(root:Path, jsonl:Path, limit:int|None=None):
     """Resim ve maskeleri yükle; -2 etiketsiz nokta, eğitim maskesine işlenmez."""
     count=0

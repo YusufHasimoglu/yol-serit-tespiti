@@ -3,7 +3,7 @@ import numpy as np
 
 import lanevision.anchored_tracking as anchored_tracking
 from lanevision.anchored_tracking import ManualLaneAnchor
-from lanevision.core import LaneSettings
+from lanevision.core import Detection, LaneSettings
 from lanevision.live_video import LiveVideoSession
 from lanevision.sample_data import draw_scene
 
@@ -81,4 +81,46 @@ def test_manual_anchor_keeps_user_lane_types_and_moves_with_frame(monkeypatch):
     assert all(item is not None for item in predicted)
     assert all("öngörülü" in item.method for item in predicted)
     assert fallback.track(blank) is None
+
+
+def test_manual_anchor_accepts_only_geometrically_compatible_reconnection():
+    height, width = 360, 640
+    frame = np.full((height, width, 3), 60, np.uint8)
+    mask = np.zeros((height, width), np.uint8)
+    cv2.line(mask, (118, 350), (282, 122), 2, 8)
+    cv2.line(mask, (532, 350), (358, 122), 3, 8)
+    anchor = ManualLaneAnchor(frame, mask, LaneSettings())
+    near = Detection(frame.copy(), {}, ((122, 350), (286, 122)), ((536, 350), (362, 122)), 0., 1., 2)
+    reconnected = anchor.reanchor_if_compatible(frame, near)
+    assert reconnected is not None
+    assert reconnected.marking_types == ("kesik", "duz")
+    assert "yeniden bağlandı" in reconnected.method
+    far = Detection(frame.copy(), {}, ((20, 350), (50, 122)), ((240, 350), (300, 122)), 0., 1., 2)
+    assert anchor.reanchor_if_compatible(frame, far) is None
+
+
+def test_live_video_does_not_display_unverified_detector_after_anchor_loss(tmp_path):
+    source = tmp_path / "tek-kare.avi"
+    writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"MJPG"), 12.0, (320, 180))
+    assert writer.isOpened()
+    writer.write(np.full((180, 320, 3), 55, np.uint8));writer.release()
+
+    class LostAnchor:
+        def track(self, frame): return None
+        def reanchor_if_compatible(self, frame, candidate): return None
+        def warning_detection(self, frame):
+            det=Detection(frame.copy(),{},None,None,None,0.,0)
+            det.method="Kullanıcı ankrajı güveni düşük — düzeltme bekliyor"
+            return det
+
+    session = LiveVideoSession(source, LaneSettings(), mode="classic")
+    session.anchor = LostAnchor()
+    try:
+        packet=session.read_next()
+    finally:
+        session.close()
+    assert packet is not None
+    assert packet.anchored
+    assert "düzeltme bekliyor" in packet.detection.method
+    assert isinstance(session.anchor, LostAnchor)
 

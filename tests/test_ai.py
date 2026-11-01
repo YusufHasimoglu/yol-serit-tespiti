@@ -6,7 +6,7 @@ import numpy as np
 from lanevision.hybrid import detect_hybrid
 from lanevision.core import Detection
 from lanevision.engine import InferenceEngine,_curves_keep_order
-from lanevision.training_data import synthetic_sample, tusimple_samples, bdd_style_samples, load_user_samples
+from lanevision.training_data import synthetic_sample, tusimple_samples, bdd_style_samples, load_user_samples, temporal_frame_variants
 from lanevision.ai_model import build_model
 from etiketle import STYLE_CLASSES, _style_mask
 
@@ -107,6 +107,24 @@ def test_style_aware_user_mask_loader_preserves_all_four_classes(tmp_path):
     _,labels=samples[0]
     assert labels.shape==(144,256,4)
     assert all(np.count_nonzero(labels[:,:,index])>0 for index in range(4))
+
+
+def test_temporal_variants_keep_style_masks_crisp_and_aligned():
+    image=np.full((144,256,3),90,np.uint8)
+    mask=np.zeros((144,256,4),np.uint8)
+    cv2.line(image,(70,140),(105,65),(250,250,250),5)
+    # OpenCV'ye bitişik maske görünümü verildiğinden ikinci sınıfı doğrudan
+    # dilim yerine geçici kanalda çiziyoruz.
+    channel=mask[:,:,1].copy();cv2.line(channel,(70,140),(105,65),255,4);mask[:,:,1]=channel
+    channel=mask[:,:,2].copy();cv2.line(channel,(190,140),(150,65),255,4);mask[:,:,2]=channel
+    variants=list(temporal_frame_variants(image,mask,3,seed=7))
+    assert len(variants)==3
+    for moved_image,moved_mask in variants:
+        assert moved_image.shape==image.shape
+        assert moved_mask.shape==mask.shape
+        assert set(np.unique(moved_mask)).issubset({0,255})
+        assert np.count_nonzero(moved_mask[:,:,1])>0
+        assert np.count_nonzero(moved_mask[:,:,2])>0
 
 
 def test_annotation_mask_keeps_dashed_strokes_separate():
