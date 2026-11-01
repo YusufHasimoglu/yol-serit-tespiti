@@ -19,6 +19,7 @@ from .engine import InferenceEngine, MODES
 from .feedback import (find_saved_review, render_reviewed_annotation,
                        save_confirmed_detection, style_sample_count)
 from .live_video import LiveVideoSession
+from .video_feedback import load_video_anchors, save_video_anchor
 from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages, write_image
 from .scene import analyze_scene
 
@@ -602,7 +603,9 @@ class LaneApp(tk.Tk):
         if self.live_session is None:
             try:
                 self.live_session = LiveVideoSession(self.current_file, self._settings(), self._mode(),
-                                                     start_frame=self.video_selected_index)
+                                                     start_frame=self.video_selected_index,
+                                                     saved_anchors=load_video_anchors(
+                                                         APP_ROOT / "data" / "gercek", self.current_file))
                 if self.pending_manual_anchor is not None:
                     anchor_frame, anchor_mask = self.pending_manual_anchor
                     self.live_session.set_manual_anchor(anchor_frame, anchor_mask)
@@ -963,6 +966,8 @@ class LaneApp(tk.Tk):
             if line_mask is None or line_mask.ndim!=2:
                 raise ValueError("Dört sınıflı çizgi maskesi okunamadı.")
             if video_frame:
+                save_video_anchor(root, self.current_file, self.live_frame_index,
+                                  self.current_image, line_mask)
                 if self.live_session is not None:
                     self.live_session.set_manual_anchor(self.current_image, line_mask)
                 else:

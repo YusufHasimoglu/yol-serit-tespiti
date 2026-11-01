@@ -12,6 +12,7 @@ __pycache__/
 /data/gercek/masks/
 /data/gercek/areas/
 /data/gercek/video_kareleri/
+/data/gercek/video_ankrajlari/
 /data/gercek/*_review.png
 /data/gercek/feedback.jsonl
 # Downloaded public datasets, selected-image manifests and extracted video clips

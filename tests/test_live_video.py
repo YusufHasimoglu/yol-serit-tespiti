@@ -6,6 +6,7 @@ from lanevision.anchored_tracking import ManualLaneAnchor
 from lanevision.core import Detection, LaneSettings
 from lanevision.live_video import LiveVideoSession
 from lanevision.sample_data import draw_scene
+from lanevision.video_feedback import load_video_anchors, save_video_anchor
 
 
 def test_live_session_yields_each_original_frame_with_detection(tmp_path):
@@ -123,4 +124,63 @@ def test_live_video_does_not_display_unverified_detector_after_anchor_loss(tmp_p
     assert packet.anchored
     assert "düzeltme bekliyor" in packet.detection.method
     assert isinstance(session.anchor, LostAnchor)
+
+
+def test_saved_video_anchor_is_reapplied_on_the_same_frame(tmp_path):
+    source = tmp_path / "duzeltmeli.avi"
+    frame = np.full((180, 320, 3), 58, np.uint8)
+    writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"MJPG"), 12.0, (320, 180))
+    assert writer.isOpened()
+    writer.write(frame);writer.write(frame);writer.release()
+    mask = np.zeros((180, 320), np.uint8)
+    cv2.line(mask, (65, 175), (138, 76), 2, 5)
+    cv2.line(mask, (255, 175), (182, 76), 3, 5)
+    stored = save_video_anchor(tmp_path / "data", source, 1, frame, mask)
+    assert stored.is_file()
+    anchors = load_video_anchors(tmp_path / "data", source)
+    assert list(anchors) == [1]
+    session = LiveVideoSession(source, LaneSettings(), mode="classic", saved_anchors=anchors)
+    try:
+        packet = session.read_next()
+    finally:
+        session.close()
+    assert packet is not None
+    assert packet.anchored
+    assert packet.detection.method == "Kaydedilmiş kullanıcı düzeltmesi"
+    assert packet.detection.marking_types == ("kesik", "duz")
+
+
+def test_legacy_video_feedback_is_loaded_as_an_anchor(tmp_path):
+    source = tmp_path / "eski.avi"
+    source.write_bytes(b"placeholder")
+    image_root = tmp_path / "data" / "images";mask_root = tmp_path / "data" / "masks"
+    image_root.mkdir(parents=True);mask_root.mkdir()
+    frame = np.full((120, 200, 3), 60, np.uint8)
+    mask = np.zeros((120, 200), np.uint8)
+    cv2.line(mask, (40, 114), (82, 52), 2, 4);cv2.line(mask, (160, 114), (118, 52), 3, 4)
+    stem = "eski_kare_000017_20261101"
+    cv2.imwrite(str(image_root / f"{stem}.png"), frame)
+    cv2.imwrite(str(mask_root / f"{stem}_mask.png"), mask)
+    anchors = load_video_anchors(tmp_path / "data", source)
+    assert list(anchors) == [17]
+
+
+def test_manual_anchor_uses_deep_flow_when_lk_loses_points(monkeypatch):
+    height, width = 360, 640
+    frame = np.full((height, width, 3), 55, np.uint8)
+    mask = np.zeros((height, width), np.uint8)
+    cv2.line(mask, (116, 350), (282, 122), 2, 8)
+    cv2.line(mask, (534, 350), (358, 122), 3, 8)
+
+    class FakeDeepFlow:
+        def track_points(self, previous, current, points):
+            moved = points.copy()
+            moved[:, :, 0] += 6
+            return moved
+
+    monkeypatch.setattr(anchored_tracking.cv2, "calcOpticalFlowPyrLK", lambda *args, **kwargs: (None, None, None))
+    tracker = ManualLaneAnchor(frame, mask, LaneSettings(), deep_flow=FakeDeepFlow())
+    detection = tracker.track(frame.copy())
+    assert detection is not None
+    assert detection.method == "Kullanıcı ankrajlı derin optik şerit takibi"
 

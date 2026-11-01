@@ -93,12 +93,16 @@ class _SideState:
 class ManualLaneAnchor:
     """İlk doğru çizimden sonra iki şeridi kareden kareye optik akışla taşır."""
 
-    def __init__(self, frame: np.ndarray, line_mask: np.ndarray, settings: LaneSettings | None = None):
+    def __init__(self, frame: np.ndarray, line_mask: np.ndarray, settings: LaneSettings | None = None,
+                 deep_flow=None):
         if frame is None or frame.ndim != 3 or line_mask is None or line_mask.shape != frame.shape[:2]:
             raise ValueError("Aynı boyutta özgün video karesi ve dört sınıflı çizgi maskesi gerekli.")
         self.settings = settings or LaneSettings()
         self.settings.validate()
         self.previous_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        self.previous_frame = frame.copy()
+        self.deep_flow = deep_flow
+        self._used_deep_flow = False
         self.sides: dict[str, _SideState] = {}
         for side, codes in _SIDE_CODES.items():
             low, high, spans = _dash_spans(line_mask, codes)
@@ -108,6 +112,12 @@ class ManualLaneAnchor:
             for side, state in self.sides.items()
         }
         self.prediction_frames = 0
+
+    def current_detection(self, frame: np.ndarray, method: str = "Kaydedilmiş kullanıcı düzeltmesi") -> Detection | None:
+        """Kaydedilmiş düzeltmenin ait olduğu karede bire bir görünümünü üret."""
+        if frame is None or frame.ndim != 3 or frame.shape[:2] != self.previous_gray.shape:
+            return None
+        return self._render(frame, self.last_polynomials, self.sides, 1.0, 1.0, method)
 
     @staticmethod
     def _ordered_endpoints(line: tuple[tuple[int, int], tuple[int, int]] | None):
@@ -190,6 +200,7 @@ class ManualLaneAnchor:
                                           previous.spans, float(kept[:, 1].min()), float(kept[:, 1].max()))
             new_polynomials[side] = poly
         self.previous_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        self.previous_frame = frame.copy()
         self.sides = new_states
         self.last_polynomials = new_polynomials
         self.prediction_frames = 0
@@ -211,26 +222,50 @@ class ManualLaneAnchor:
         det.lane_polynomials = (None, None)
         return det
 
-    def _track_side(self, state: _SideState, current_gray: np.ndarray) -> tuple[np.ndarray, _SideState, float] | None:
+    def _track_side(self, state: _SideState, current_gray: np.ndarray,
+                    current_frame: np.ndarray) -> tuple[np.ndarray, _SideState, float, bool] | None:
         next_points, status, errors = cv2.calcOpticalFlowPyrLK(
             self.previous_gray, current_gray, state.points, None,
             winSize=(25, 25), maxLevel=3,
             criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 25, .01),
         )
-        if next_points is None or status is None:
-            return None
-        valid = status.reshape(-1).astype(bool)
-        if errors is not None:
-            valid &= errors.reshape(-1) < 38
-        candidate = next_points.reshape(-1, 2)[valid]
-        h, w = current_gray.shape[:2]
-        inside = ((candidate[:, 0] >= 1) & (candidate[:, 0] < w - 1) &
-                  (candidate[:, 1] >= 1) & (candidate[:, 1] < h - 1))
-        candidate = candidate[inside]
-        fitted = _robust_poly(candidate)
+        candidate = None
+        if next_points is not None and status is not None:
+            valid = status.reshape(-1).astype(bool)
+            if errors is not None:
+                valid &= errors.reshape(-1) < 38
+            candidate = next_points.reshape(-1, 2)[valid]
+        used_deep = False
+        if candidate is not None:
+            h, w = current_gray.shape[:2]
+            inside = ((candidate[:, 0] >= 1) & (candidate[:, 0] < w - 1) &
+                      (candidate[:, 1] >= 1) & (candidate[:, 1] < h - 1))
+            candidate = candidate[inside]
+        fitted = _robust_poly(candidate) if candidate is not None else None
+        coverage = (len(fitted[1]) / max(1, len(state.points))) if fitted is not None else 0.0
+        # Lucas-Kanade küçük ve dokulu hareketlerde hızlıdır. Kayıp, büyük
+        # hareket ya da düşük doku yüzünden güveni azalırsa RAFT'in öğrenilmiş
+        # yoğun hareket alanı aynı noktalar için ikinci ölçüm olur.
+        if (fitted is None or coverage < .28) and self.deep_flow is not None:
+            deep_points = self.deep_flow.track_points(self.previous_frame, current_frame, state.points)
+            if deep_points is not None:
+                candidate = deep_points.reshape(-1, 2)
+                used_deep = True
+                fitted = _robust_poly(candidate)
+                coverage = (len(fitted[1]) / max(1, len(state.points))) if fitted is not None else 0.0
         if fitted is None:
             return None
         poly, kept = fitted
+        h, w = current_gray.shape[:2]
+        inside = ((kept[:, 0] >= 1) & (kept[:, 0] < w - 1) &
+                  (kept[:, 1] >= 1) & (kept[:, 1] < h - 1))
+        kept = kept[inside]
+        if len(kept) < 6:
+            return None
+        refined = _robust_poly(kept)
+        if refined is None:
+            return None
+        poly, kept = refined
         coverage = len(kept) / max(1, len(state.points))
         # Takip noktaları aşırı seyrekleştiğinde eski eğriyi ileri taşımak,
         # bir sonraki karede yol dışına sıçramaya yol açar. Güvenle yedeğe dön.
@@ -238,7 +273,7 @@ class ManualLaneAnchor:
             return None
         low, high = float(kept[:, 1].min()), float(kept[:, 1].max())
         new_state = _SideState(state.kind, kept.reshape(-1, 1, 2).astype(np.float32), state.spans, low, high)
-        return poly, new_state, coverage
+        return poly, new_state, coverage, used_deep
 
     def _recover_side(self, side: str, state: _SideState, current_gray: np.ndarray) -> tuple[np.ndarray, _SideState, float] | None:
         """Öngörülen eğrinin dar çevresinde gerçek çizgi kenarı ara.
@@ -344,29 +379,35 @@ class ManualLaneAnchor:
         if frame is None or frame.ndim != 3 or frame.shape[:2] != self.previous_gray.shape:
             return None
         current_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        tracked = {side: self._track_side(state, current_gray) for side, state in self.sides.items()}
+        self._used_deep_flow = False
+        tracked = {side: self._track_side(state, current_gray, frame) for side, state in self.sides.items()}
         predicted = set()
         for side, state in self.sides.items():
             if tracked[side] is not None:
                 continue
             tracked[side] = self._recover_side(side, state, current_gray)
             if tracked[side] is not None:
+                tracked[side] = (*tracked[side], False)
                 continue
             # Kısa bir örtülme veya kesik çizginin boşluğu sırasında önceki
             # yol geometrisi güvenli bir köprü sağlar. Bu köprü sınırlıdır;
             # kalıcı kanıt yoksa aşağıda normal algılamaya geri dönülür.
             if self.prediction_frames >= 10:
                 self.previous_gray = current_gray
+                self.previous_frame = frame.copy()
                 return None
             predicted.add(side)
-            tracked[side] = (self.last_polynomials[side], state, .30)
-        left_poly, left_state, left_coverage = tracked["left"]
-        right_poly, right_state, right_coverage = tracked["right"]
+            tracked[side] = (self.last_polynomials[side], state, .30, False)
+        left_poly, left_state, left_coverage, left_deep = tracked["left"]
+        right_poly, right_state, right_coverage, right_deep = tracked["right"]
         self.previous_gray = current_gray
+        self.previous_frame = frame.copy()
         self.sides = {"left": left_state, "right": right_state}
         self.last_polynomials = {"left": left_poly, "right": right_poly}
         self.prediction_frames = self.prediction_frames + 1 if predicted else 0
+        self._used_deep_flow = left_deep or right_deep
         return self._render(frame, self.last_polynomials, self.sides, left_coverage, right_coverage,
                             "Kullanıcı ankrajlı öngörülü şerit takibi" if predicted
-                            else "Kullanıcı ankrajlı optik şerit takibi")
+                            else ("Kullanıcı ankrajlı derin optik şerit takibi" if self._used_deep_flow
+                                  else "Kullanıcı ankrajlı optik şerit takibi"))
 

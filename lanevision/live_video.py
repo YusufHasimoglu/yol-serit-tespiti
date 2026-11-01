@@ -10,6 +10,7 @@ import numpy as np
 from .core import Detection, LaneSettings
 from .anchored_tracking import ManualLaneAnchor
 from .engine import InferenceEngine
+from .raft_flow import RaftPointFlow
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,8 @@ class LiveVideoSession:
     """
 
     def __init__(self, source: str | Path, settings: LaneSettings | None = None,
-                 mode: str = "auto", start_frame: int = 0):
+                 mode: str = "auto", start_frame: int = 0,
+                 saved_anchors: dict[int, tuple[np.ndarray, np.ndarray]] | None = None):
         self.source = Path(source)
         if not self.source.is_file():
             raise FileNotFoundError(self.source)
@@ -55,10 +57,12 @@ class LiveVideoSession:
         self.settings.validate()
         self.detector = InferenceEngine(self.settings, mode=mode)
         self.anchor: ManualLaneAnchor | None = None
+        self.saved_anchors = dict(saved_anchors or {})
+        self.deep_flow = RaftPointFlow()
 
     def set_manual_anchor(self, frame: np.ndarray, line_mask: np.ndarray) -> None:
         """Use a user-corrected frame as the active pair of lane boundaries."""
-        self.anchor = ManualLaneAnchor(frame, line_mask, self.settings)
+        self.anchor = ManualLaneAnchor(frame, line_mask, self.settings, deep_flow=self.deep_flow)
 
     def read_next(self) -> LiveFrame | None:
         """Bir sonraki kareyi tespitli olarak ver; video bittiyse ``None`` döndür."""
@@ -70,7 +74,14 @@ class LiveVideoSession:
             return None
         self.index += 1
         anchored = False
-        if self.anchor is not None:
+        saved = self.saved_anchors.get(self.index)
+        if saved is not None:
+            # Video tekrar oynatıldığında tam kullanıcı düzeltmesinin yapıldığı
+            # karede ankrajı yeniden kur. Sonraki kareler bu düzeltmeyi izler.
+            self.set_manual_anchor(original, saved[1])
+            detection = self.anchor.current_detection(original, "Kaydedilmiş kullanıcı düzeltmesi")
+            anchored = detection is not None
+        elif self.anchor is not None:
             detection = self.anchor.track(original)
             if detection is not None:
                 anchored = True
