@@ -10,6 +10,7 @@ __pycache__/
 # Never publish user-supplied/third-party road photos or derived masks
 /data/gercek/images/
 /data/gercek/masks/
+/data/gercek/areas/
 /data/gercek/*_review.png
 /data/gercek/feedback.jsonl
 # Downloaded public datasets, selected-image manifests and extracted video clips

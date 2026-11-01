@@ -60,6 +60,32 @@ def _fallback_points(line) -> np.ndarray | None:
     return points if points.shape == (2, 2) else None
 
 
+def area_mask_from_boundaries(shape: tuple[int, int], left: np.ndarray | None = None,
+                              right: np.ndarray | None = None,
+                              manual_points: np.ndarray | None = None) -> np.ndarray:
+    """Return a binary drivable-area mask from a manual polygon or two boundaries."""
+    area = np.zeros(shape, np.uint8)
+    if manual_points is not None:
+        polygon = np.asarray(manual_points, dtype=np.int32)
+        if polygon.ndim == 2 and len(polygon) >= 3:
+            cv2.fillPoly(area, [polygon], 255, cv2.LINE_8)
+        return area
+    if left is None or right is None:
+        return area
+    left = np.asarray(left, dtype=np.int32)
+    right = np.asarray(right, dtype=np.int32)
+    if left.ndim != 2 or right.ndim != 2 or len(left) < 2 or len(right) < 2:
+        return area
+    # Curves can originate at either end depending on the detector.  Sorting
+    # both upward gives a stable non-crossing polygon for the lane interior.
+    left = left[np.argsort(left[:, 1])]
+    right = right[np.argsort(right[:, 1])]
+    if np.median(left[:, 0]) >= np.median(right[:, 0]):
+        return area
+    cv2.fillPoly(area, [np.vstack([left, right[::-1]])], 255, cv2.LINE_8)
+    return area
+
+
 def confirmed_mask(image: np.ndarray, detection) -> np.ndarray:
     """Create a four-class label only from a user-confirmed complete result.
 
@@ -102,8 +128,18 @@ def save_confirmed_detection(image: np.ndarray, detection, root: Path, source_na
     root = Path(root)
     name = _unique_name(source_name)
     mask = confirmed_mask(image, detection)
+    pair = getattr(detection, "lane_polynomials", (None, None))
+    left_item, right_item = pair if isinstance(pair, tuple) and len(pair) == 2 else (None, None)
+    left = _points_from_item(left_item, image.shape[:2])
+    right = _points_from_item(right_item, image.shape[:2])
+    if left is None:
+        left = _fallback_points(detection.left)
+    if right is None:
+        right = _fallback_points(detection.right)
+    area = area_mask_from_boundaries(image.shape[:2], left, right)
     image_path = write_image(root / "images" / f"{name}.png", image)
     mask_path = write_image(root / "masks" / f"{name}_mask.png", mask)
+    area_path = write_image(root / "areas" / f"{name}_area.png", area)
     record = {
         "name": name,
         "source_name": Path(source_name).name,
@@ -113,7 +149,7 @@ def save_confirmed_detection(image: np.ndarray, detection, root: Path, source_na
     }
     with (root / "feedback.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-    return {"name": name, "image": image_path, "mask": mask_path}
+    return {"name": name, "image": image_path, "mask": mask_path, "area": area_path}
 
 
 def style_sample_count(root: Path) -> int:

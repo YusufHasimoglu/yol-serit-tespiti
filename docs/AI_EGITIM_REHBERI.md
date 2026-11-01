@@ -34,14 +34,14 @@ En kolay yol, uygulamada özgün fotoğrafı açtıktan sonra **EĞİTİM İÇİ
 python etiketle.py --image C:/videolarim/yol1.jpg --name yol_001 --style-aware
 ```
 
-Açılan pencerede **1** sol düz, **2** sol kesik, **3** sağ düz, **4** sağ kesik seçilir. Her tarafta yalnızca gerçek ego-şerit sınırını ve en az iki noktayı işaretleyin; **sol tık** nokta koyar, **U** geri alır, **S** kaydeder, **Esc** çıkar. Virajlar için bol nokta kullanın. Eğitimde otomatik kullanılacak dosyalar:
+Açılan pencerede **1** sol düz, **2** sol kesik, **3** sağ düz, **4** sağ kesik seçilir. Her tarafta yalnızca gerçek ego-şerit sınırını ve en az iki noktayı işaretleyin. Ardından **5** ile iki sınır arasındaki sürülebilir alanın çokgenini çizebilirsiniz; bu adımı atlarsanız alan iki çizgiden otomatik oluşturulur. **Sol tık** nokta koyar, **U** geri alır, **S** kaydeder, **Esc** çıkar. Virajlar için bol nokta kullanın. Eğitimde otomatik kullanılacak dosyalar:
 
 ```text
 data/gercek/images/yol_001.png
  data/gercek/masks/yol_001_mask.png
 ```
 
-Maske kayıpsız PNG olarak 1=sol düz, 2=sol kesik, 3=sağ düz, 4=sağ kesik sınıflarını taşır. **Yanlış etiketler modeli daha kötü yapabilir.** Eklediğiniz 1 fotoğrafı eğitim + test için tekrar kullanmayın. Birbirine çok benzeyen ardışık video karelerini eğitim/doğrulama arasında ayırmayın; aynı videonun tüm kareleri tek grupta kalmalı.
+Çizgi maskesi kayıpsız PNG olarak 1=sol düz, 2=sol kesik, 3=sağ düz, 4=sağ kesik sınıflarını taşır. Alan maskesi de ayrı olarak `data/gercek/areas/` altında saklanır; mevcut çizgi modeli çizgi maskesiyle eğitilir, alan maskesi ise görsel kontrol ve sonraki alan-segmentasyonu geliştirmesi içindir. **Yanlış etiketler modeli daha kötü yapabilir.** Eklediğiniz 1 fotoğrafı eğitim + test için tekrar kullanmayın. Birbirine çok benzeyen ardışık video karelerini eğitim/doğrulama arasında ayırmayın; aynı videonun tüm kareleri tek grupta kalmalı.
 
 ## 4. Modeli yeniden eğitme
 

@@ -621,7 +621,7 @@ class LaneApp(tk.Tk):
             return
         if not correction and not messagebox.askyesno(
             "Eğitim etiketi",
-            "Açılan pencerede 1=sol düz, 2=sol kesik, 3=sağ düz, 4=sağ kesik seçilir.\n"
+            "Açılan pencerede 1=sol düz, 2=sol kesik, 3=sağ düz, 4=sağ kesik, 5=aradaki alan seçilir.\n"
             "Her çizgi için en az iki nokta koyun. Özgün görsel yalnızca yerel eğitim klasörüne kaydedilecek."
         ):
             return
