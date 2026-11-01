@@ -243,10 +243,13 @@ def bdd_style_samples(root: Path, labels_json: Path, limit: int|None=None,
             break
 
 
-def load_user_samples(folder:Path):
+def load_user_samples(folder:Path,style_aware:bool=False):
     """data/gercek/images/*.png ve data/gercek/masks/*_mask.png.
 
-    Maske kırmızı=sol, yeşil=sağ. Poligon etiketleri eğitim maskesine çevrilir.
+    Eski maskelerde kırmızı=sol, yeşil=sağdır. Dört sınıflı maskeler ise
+    kayıpsız gri ton değerleri kullanır: 1=sol-düz, 2=sol-kesik,
+    3=sağ-düz, 4=sağ-kesik. ``style_aware`` yalnızca ikinci biçimi kabul
+    eder; bilinmeyen çizgi türünü uydurma eğitim hedefi yapmaz.
     """
     folder=Path(folder)
     imgroot=folder/'images';maskroot=folder/'masks'
@@ -255,9 +258,19 @@ def load_user_samples(folder:Path):
         if p.suffix.lower() not in {'.png','.jpg','.jpeg','.webp'}:continue
         label=maskroot/(p.stem+'_mask.png')
         if not label.is_file():continue
-        image=cv2.imread(str(p));mask=cv2.imread(str(label))
+        image=cv2.imread(str(p));mask=cv2.imread(str(label),cv2.IMREAD_UNCHANGED)
         if image is None or mask is None:continue
         image=cv2.resize(image,(INPUT_WIDTH,INPUT_HEIGHT));mask=cv2.resize(mask,(INPUT_WIDTH,INPUT_HEIGHT),interpolation=cv2.INTER_NEAREST)
-        # OpenCV BGR: kırmızı kanal 2 sol, yeşil kanal 1 sağ
-        labels=np.stack([(mask[:,:,2]>150).astype(np.uint8)*255,(mask[:,:,1]>150).astype(np.uint8)*255],-1)
+        if mask.ndim==2:
+            if style_aware:
+                labels=np.stack([(mask==value).astype(np.uint8)*255 for value in range(1,5)],-1)
+                # Her iki taraf yoksa görünmeyen çizgiyi yanlış negatif sayma.
+                if not np.any(labels[:,:,:2]) or not np.any(labels[:,:,2:]):continue
+            else:
+                labels=np.stack([((mask==1)|(mask==2)).astype(np.uint8)*255,
+                                 ((mask==3)|(mask==4)).astype(np.uint8)*255],-1)
+        else:
+            if style_aware:continue
+            # OpenCV BGR: kırmızı kanal 2 sol, yeşil kanal 1 sağ
+            labels=np.stack([(mask[:,:,2]>150).astype(np.uint8)*255,(mask[:,:,1]>150).astype(np.uint8)*255],-1)
         yield image,labels

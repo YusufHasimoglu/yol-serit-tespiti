@@ -47,6 +47,6 @@ python egit_gercek.py --help
 python etiketle.py --help
 ```
 
-Gerçek görüntülerle eğitim için fotoğrafları `data/gercek/images/`, etiket maskelerini `data/gercek/masks/` klasörüne yerleştirin. GitHub'a fotoğrafların veya üçüncü taraf veri kümelerinin ham kopyaları **konulmaz**. `hazirla_bdd100.py`, resmî BDD100K etiketlerinden düz/kesik sınıfları bulunan 100 farklı video ana karesini yerelde seçer; `egit.py --bdd-root ... --bdd-json ... --bdd-manifest ...` bu karelerle dört kanallı modeli eğitir. Ayrıntılar için eğitim rehberine bakın.
+Gerçek görüntülerle eğitim için uygulamadaki **EĞİTİM İÇİN ETİKETLE** düğmesini kullanın. Özgün fotoğraf yerelde `data/gercek/images/`, düz/kesik sınıflı maske ise `data/gercek/masks/` klasörüne kaydedilir. GitHub'a fotoğrafların veya üçüncü taraf veri kümelerinin ham kopyaları **konulmaz**. `hazirla_bdd100.py`, resmî BDD100K etiketlerinden düz/kesik sınıfları bulunan 100 farklı video ana karesini yerelde seçer; `egit.py --bdd-root ... --bdd-json ... --bdd-manifest ...` bu karelerle dört kanallı modeli eğitir. Ayrıntılar için eğitim rehberine bakın.
 
 Ayrıntılar: [Kullanım ve arayüz](docs/KULLANIM.md) · [Gerçek veri deneyi](docs/GERCEK_VERI_DENEYI.md) · [AI eğitim rehberi](docs/AI_EGITIM_REHBERI.md) · [Deney planı](docs/DENEY_PLANI.md).

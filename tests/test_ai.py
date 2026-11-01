@@ -6,7 +6,7 @@ import numpy as np
 from lanevision.hybrid import detect_hybrid
 from lanevision.core import Detection
 from lanevision.engine import InferenceEngine,_curves_keep_order
-from lanevision.training_data import synthetic_sample, tusimple_samples, bdd_style_samples
+from lanevision.training_data import synthetic_sample, tusimple_samples, bdd_style_samples, load_user_samples
 from lanevision.ai_model import build_model
 
 ROOT=Path(__file__).resolve().parent.parent
@@ -90,6 +90,22 @@ def test_bdd_legacy_per_video_labels_are_supported(tmp_path):
     assert len(out)==1
     assert np.count_nonzero(out[0][1][:,:,1])>0
     assert np.count_nonzero(out[0][1][:,:,2])>0
+
+
+def test_style_aware_user_mask_loader_preserves_all_four_classes(tmp_path):
+    (tmp_path/'images').mkdir();(tmp_path/'masks').mkdir()
+    cv2.imwrite(str(tmp_path/'images'/'road.png'),np.full((144,256,3),80,np.uint8))
+    mask=np.zeros((144,256),np.uint8)
+    cv2.line(mask,(70,140),(100,72),1,4)
+    cv2.line(mask,(92,140),(116,72),2,4)
+    cv2.line(mask,(170,140),(145,72),3,4)
+    cv2.line(mask,(205,140),(162,72),4,4)
+    cv2.imwrite(str(tmp_path/'masks'/'road_mask.png'),mask)
+    samples=list(load_user_samples(tmp_path,style_aware=True))
+    assert len(samples)==1
+    _,labels=samples[0]
+    assert labels.shape==(144,256,4)
+    assert all(np.count_nonzero(labels[:,:,index])>0 for index in range(4))
 
 
 def test_crossing_fallback_curves_are_not_a_lane_pair():

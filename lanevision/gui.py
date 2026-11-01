@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import queue
+import subprocess
+import sys
 import threading
+from datetime import datetime
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -158,6 +161,7 @@ class LaneApp(tk.Tk):
         self.btn_detect = self._button(controls, "ŞERİTLERİ TESPİT ET", self._detect, primary=True)
         self.btn_save = self._button(controls, "SONUCU KAYDET", self._save_result)
         self.btn_steps = self._button(controls, "ARA ADIMLARI KAYDET", self._save_steps)
+        self.btn_label = self._button(controls, "EĞİTİM İÇİN ETİKETLE", self._label_current_image)
         self.btn_stop = self._button(controls, "VİDEOYU DURDUR", self._stop_video)
         self.btn_stop.configure(state="disabled")
 
@@ -525,6 +529,31 @@ class LaneApp(tk.Tk):
                 self.status.set(f"{len(self.current_detection.stages)} işlem aşaması kaydedildi: " + folder)
             except Exception as exc:
                 messagebox.showerror("Kaydetme hatası", str(exc))
+
+    def _label_current_image(self):
+        """Özgün fotoğraf için dört sınıflı etiketleme penceresini aç."""
+        if self.current_file is None or self.current_image is None:
+            messagebox.showinfo("Fotoğraf seçin", "Önce etiketlemek istediğiniz özgün yol fotoğrafını açın.")
+            return
+        if self.current_file.suffix.lower() in VIDEO_EXTENSIONS:
+            messagebox.showinfo("Video karesi", "Videodan önce bir kareyi görsel olarak kaydedip sonra o görseli açın.")
+            return
+        if not messagebox.askyesno(
+            "Eğitim etiketi",
+            "Açılan pencerede 1=sol düz, 2=sol kesik, 3=sağ düz, 4=sağ kesik seçilir.\n"
+            "Her çizgi için en az iki nokta koyun. Özgün görsel yalnızca yerel eğitim klasörüne kaydedilecek."
+        ):
+            return
+        name=f"{self.current_file.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        try:
+            subprocess.Popen([
+                sys.executable, str(APP_ROOT / "etiketle.py"), "--image", str(self.current_file),
+                "--name", name, "--outdir", str(APP_ROOT / "data" / "gercek"), "--style-aware",
+            ], cwd=str(APP_ROOT))
+        except OSError as exc:
+            messagebox.showerror("Etiketleme açılamadı", str(exc))
+            return
+        self.status.set("Etiketleme penceresi açıldı. Kaydedilen özgün görsel yalnızca yerel eğitim verisine eklenir.")
 
     def _on_close(self):
         if self.is_processing:

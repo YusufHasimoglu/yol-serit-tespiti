@@ -28,6 +28,8 @@ def main():
     p.add_argument('--limit',type=int,default=0)
     p.add_argument('--out',type=Path,default=Path('modeller/serit_unet_demo.pt'))
     p.add_argument('--resume',action='store_true',help='Son en iyi ağırlıklarla ek eğitim turları')
+    p.add_argument('--style-aware',action='store_true',
+                   help='Kullanıcı etiketlerindeki sol/sağ düz-kesik dört sınıfını eğit')
     args=p.parse_args()
     if args.synthetic<0 or args.epochs<1 or args.batch<1: p.error('Eğitim sayıları geçersiz')
     import torch
@@ -39,21 +41,19 @@ def main():
     torch.set_num_threads(min(5,torch.get_num_threads()))
     if bool(args.bdd_root) != bool(args.bdd_json):
         p.error('BDD100K için --bdd-root ve --bdd-json birlikte verilmelidir.')
-    style_aware=bool(args.bdd_root and args.bdd_json)
+    style_aware=bool((args.bdd_root and args.bdd_json) or args.style_aware)
     output_channels=4 if style_aware else 2
     channel_layout=(['left_solid','left_dashed','right_solid','right_dashed']
                     if style_aware else ['left','right'])
     examples=[];origins=[];groups=[]
     for i in range(args.synthetic):
         examples.append(synthetic_sample(args.seed+i,style_aware=style_aware));origins.append('sentetik');groups.append(f'sentetik-{i}')
-    if style_aware and (args.tusimple_json or args.real_folder.is_dir()):
+    if style_aware and args.tusimple_json:
         # Two-channel masks cannot truthfully provide solid/dashed labels.
         # Do not silently turn unknown styles into fabricated targets.
         if args.tusimple_json:
             p.error('Düz/kesik BDD eğitimi ile etiketsiz TuSimple maskeleri aynı modelde karıştırılamaz.')
-    for e in (load_user_samples(args.real_folder) or []):
-        if style_aware:
-            continue
+    for e in (load_user_samples(args.real_folder,style_aware=style_aware) or []):
         examples.append(e);origins.append('etiketli-gercek');groups.append(f'kullanici-{len(groups)}')
     if args.tusimple_json and args.tusimple_root:
         for e in tusimple_samples(args.tusimple_root,args.tusimple_json,args.limit or None):

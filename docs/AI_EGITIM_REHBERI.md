@@ -28,18 +28,20 @@ AI sonuçlarında `09 AI olasilik haritasi` (kırmızı=sol / yeşil=sağ) ve `1
 
 ## 3. Gerçek yol fotoğrafını etiketleme
 
+En kolay yol, uygulamada özgün fotoğrafı açtıktan sonra **EĞİTİM İÇİN ETİKETLE** düğmesine basmaktır. Açılan pencerede ekran görüntüsü değil özgün dosya kullanılır. Alternatif olarak komut satırından:
+
 ```bash
-python etiketle.py --image C:/videolarim/yol1.jpg --name yol_001
+python etiketle.py --image C:/videolarim/yol1.jpg --name yol_001 --style-aware
 ```
 
-Açılan pencerede **1** sol şerit (kırmızı), **2** sağ şerit (yeşil), **sol tık** nokta koyma, **U** geri alma, **S** kaydetme, **Esc** çıkıştır. Virajlar için bol nokta kullanın. Eğitimde otomatik kullanılacak dosyalar:
+Açılan pencerede **1** sol düz, **2** sol kesik, **3** sağ düz, **4** sağ kesik seçilir. Her tarafta yalnızca gerçek ego-şerit sınırını ve en az iki noktayı işaretleyin; **sol tık** nokta koyar, **U** geri alır, **S** kaydeder, **Esc** çıkar. Virajlar için bol nokta kullanın. Eğitimde otomatik kullanılacak dosyalar:
 
 ```text
 data/gercek/images/yol_001.png
  data/gercek/masks/yol_001_mask.png
 ```
 
-Arka plan siyah, sol çizgi kırmızı (BGR kanal R), sağ çizgi yeşil (G) olmalıdır. **Yanlış etiketler modeli daha kötü yapabilir.** Eklediğiniz 1 fotoğrafı eğitim + test için tekrar kullanmayın. Birbirine çok benzeyen ardışık video karelerini eğitim/doğrulama arasında ayırmayın; aynı videonun tüm kareleri tek grupta kalmalı.
+Maske kayıpsız PNG olarak 1=sol düz, 2=sol kesik, 3=sağ düz, 4=sağ kesik sınıflarını taşır. **Yanlış etiketler modeli daha kötü yapabilir.** Eklediğiniz 1 fotoğrafı eğitim + test için tekrar kullanmayın. Birbirine çok benzeyen ardışık video karelerini eğitim/doğrulama arasında ayırmayın; aynı videonun tüm kareleri tek grupta kalmalı.
 
 ## 4. Modeli yeniden eğitme
 
@@ -56,6 +58,14 @@ python egit.py --synthetic 120 --epochs 5 --batch 8 --resume
 ```
 
 CUDA destekli PyTorch sürümü kurulmuşsa otomatik CUDA seçilir, değilse CPU ile eğitir. RTX 3050 Ti 4 GB için **`--batch 2` veya `--batch 4`** kullanmanız daha güvenli olabilir. Tüketilen VRAM sürüme ve görüntü boyutuna bağlıdır.
+
+Düz/kesik türlerini de öğrenen aday model için, en az birkaç düz ve birkaç kesik etiket topladıktan sonra ayrı aday dosyası üretin:
+
+```bash
+python egit.py --style-aware --synthetic 240 --epochs 15 --batch 4 --out modeller/serit_unet_kullanici_candidate.pt
+```
+
+Aday ağırlığı, bağımsız test görsellerinde değerlendirilmeden varsayılan modelin yerine geçirilmez.
 
 **Gerçek veriyle yüksek başarı istiyorsanız** en az farklı hava, aydınlatma, viraj ve kamera açılarından, birbirinden farklı yüzlerce doğru etiketlenmiş görüntü toplamanız gerekir. Buradaki sayı deney planı önerisidir, garanti değildir.
 
