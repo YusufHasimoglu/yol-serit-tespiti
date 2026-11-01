@@ -21,6 +21,7 @@ from .feedback import (find_saved_review, render_reviewed_annotation,
 from .live_video import LiveVideoSession
 from .video_feedback import load_video_anchors, save_video_anchor
 from .ufld import DEFAULT_UFLD_WEIGHTS
+from .yolopv2 import DEFAULT_YOLOPV2_WEIGHTS
 from .processing import VIDEO_EXTENSIONS, process_video, read_image, save_stages, write_image
 from .scene import analyze_scene
 
@@ -103,14 +104,18 @@ class LaneApp(tk.Tk):
         import importlib.util
         from .ai_model import DEFAULT_WEIGHTS
         ufld_ready=DEFAULT_UFLD_WEIGHTS.is_file()
+        yolopv2_ready=DEFAULT_YOLOPV2_WEIGHTS.is_file()
         if importlib.util.find_spec("torch") is None:
-            self.ai_status_var.set("●  AI: UFLD V2 hazır" if ufld_ready else "●  AI PASİF: PyTorch ve UFLD modeli bulunamadı")
-        elif not DEFAULT_WEIGHTS.is_file():
-            self.ai_status_var.set("●  AI: UFLD V2 hazır · U-Net ağırlığı yok" if ufld_ready else "●  AI PASİF: model ağırlığı bulunamadı")
-        elif ufld_ready:
-            self.ai_status_var.set("●  AI HAZIR: U-Net + UFLD V2")
+            self.ai_status_var.set("●  AI PASİF: YOLOPv2/U-Net için PyTorch gerekli")
         else:
-            self.ai_status_var.set("●  AI HAZIR: U-Net ağırlıkları mevcut")
+            ready=[]
+            if DEFAULT_WEIGHTS.is_file():ready.append("U-Net")
+            if ufld_ready:ready.append("UFLD V2")
+            if yolopv2_ready:ready.append("YOLOPv2")
+            if ready:
+                self.ai_status_var.set("●  AI HAZIR: " + " + ".join(ready))
+            else:
+                self.ai_status_var.set("●  AI PASİF: model ağırlığı bulunamadı")
 
     def _configure_styles(self):
         style = ttk.Style(self)

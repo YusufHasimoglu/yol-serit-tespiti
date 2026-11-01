@@ -9,7 +9,7 @@ Python/OpenCV ve PyTorch ile geliştirilmiş Türkçe arayüzlü, araştırma am
 - Fotoğraf ve video açma, sonucu ve ara adımları kaydetme.
 - Gündüz, gece, alacakaranlık ve viraj profili için **görüntüden tahmini sahne analizi**.
 - Sol/sağ sürüş şeridi sınırlarına odaklanan **kesikli ve sürekli çizgi takibi**, eksik kesikli boyanın olası devamını farklı gösterme.
-- Düz/kesik ayrımlı dört kanallı U-Net segmentasyon, UFLD V2 derin şerit algılama, eğrisel renk takibi, klasik Canny–Hough ve otomatik seçim.
+- Düz/kesik ayrımlı dört kanallı U-Net segmentasyon, UFLD V2, YOLOPv2 şerit + sürülebilir-yol maskesi, eğrisel renk takibi, klasik Canny–Hough ve otomatik seçim.
 - Eğitim, etiketleme, değerlendirme, sentetik veri üretimi ve testler.
 - Haftalık GitHub Actions araştırma eğitim işi; aday ağırlıklar otomatik olarak ana modelin yerine geçirilmez.
 
@@ -68,3 +68,21 @@ python indir_ufld_v2.py
 ```
 
 İndirme yaklaşık 368 MB'tır ve yalnızca kendi bilgisayarınıza kaydedilir.
+
+## YOLOPv2 şerit ve sürülebilir-yol modeli
+
+**“Gelişmiş AI (YOLOPv2 şerit + yol maskesi)”** seçeneği, BDD100K için
+eğitilmiş YOLOPv2'nin şerit boyası ve sürülebilir-yol maskelerini birlikte
+kullanır. Model maskesi, mevcut fiziksel boya ve şerit-geometrisi kontrolünü
+daraltır; uygun bir çift çıkmazsa uygulama uydurma çizgi üretmek yerine
+fiziksel boya yedeğine döner. Düz/kesik ayrımı yine gerçek boya boşluklarından
+ölçülür.
+
+Model henüz yoksa proje klasöründe bir kez çalıştırın:
+
+```bash
+python indir_yolopv2.py
+```
+
+İndirme yaklaşık 150 MB'tır ve `modeller/yolopv2_bdd100k.pt` olarak yalnızca
+yerel bilgisayarınıza kaydedilir; GitHub'a yüklenmez.

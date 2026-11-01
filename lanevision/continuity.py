@@ -294,7 +294,8 @@ def _pair(lefts,rights,h,w):
     return None,best_right
 
 
-def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None,channel_layout=None):
+def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None,channel_layout=None,
+                      lane_evidence=None,road_evidence=None):
     if frame is None or frame.ndim!=3 or min(frame.shape[:2])<100:raise ValueError('BGR resim (en az 100x100) gerekli')
     s=settings or LaneSettings();s.validate()
     h,w=frame.shape[:2]
@@ -310,19 +311,64 @@ def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None,c
     road=np.zeros((th,tw),np.uint8)
     cv2.fillPoly(road,[np.array([[0,th-1],[int(tw*.17),int(th*.45)],[int(tw*.95),int(th*.45)],[tw-1,th-1]],np.int32)],255)
     raw=cv2.bitwise_and(raw,road)
+    # Keep the physical colour mask as the drawing evidence.  A learned lane
+    # model may guide *which* painted trace is selected, but it must never
+    # fabricate line segments where the source image contains no paint.
+    observed_raw=raw.copy()
     if probabilities is not None:
         prob=cv2.resize(probabilities,(tw,th))
         # AI only helps locate paint-colored candidate pixels; it cannot
         # override zero physical lane evidence in this experimental tracer.
         confidence=((np.max(prob,axis=-1)>.55)&(raw>0)).astype(np.uint8)*255
         raw=cv2.bitwise_or(raw,confidence)
-    lefts=_candidates(raw,'left');rights=_candidates(raw,'right')
+    evidence_used=False
+    # YOLOPv2 supplies two masks: likely lane markings and drivable road.  Use
+    # them only as a spatial gate for the already observed paint pixels.  If
+    # their restricted candidate set cannot form a valid ego-lane pair, fall
+    # back to the original physical-paint candidates instead of returning an
+    # empty or unrelated result.
+    guided=raw
+    if road_evidence is not None:
+        road_mask=cv2.resize((np.asarray(road_evidence)>0).astype(np.uint8)*255,(tw,th),
+                             interpolation=cv2.INTER_NEAREST)
+        road_support=cv2.dilate(road_mask,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(21,13)))
+        road_guided=cv2.bitwise_and(guided,road_support)
+        if np.count_nonzero(road_guided)>=max(65,int(np.count_nonzero(guided)*.012)):
+            guided=road_guided
+    if lane_evidence is not None:
+        lane_mask=cv2.resize((np.asarray(lane_evidence)>0).astype(np.uint8)*255,(tw,th),
+                             interpolation=cv2.INTER_NEAREST)
+        # This width tolerates the small difference between the segmentation
+        # contour and the centre of a painted marking after resizing.
+        lane_support=cv2.dilate(lane_mask,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(29,11)))
+        lane_guided=cv2.bitwise_and(guided,lane_support)
+        if np.count_nonzero(lane_guided)>=max(55,int(np.count_nonzero(guided)*.009)):
+            guided=lane_guided
+        guided_lefts=_candidates(guided,'left');guided_rights=_candidates(guided,'right')
+        guided_left,guided_right=_pair(guided_lefts,guided_rights,th,tw)
+        if guided_left is not None and guided_right is not None:
+            raw=guided
+            lefts,rights=guided_lefts,guided_rights
+            left,right=guided_left,guided_right
+            evidence_used=True
+        else:
+            raw=observed_raw
+            lefts=_candidates(raw,'left');rights=_candidates(raw,'right')
+            left,right=_pair(lefts,rights,th,tw)
+    else:
+        raw=observed_raw
+        lefts=_candidates(raw,'left');rights=_candidates(raw,'right')
+        left,right=_pair(lefts,rights,th,tw)
     if probabilities is not None:
         for item in lefts:
             _apply_ai_style(item,prob,channel_layout,'left')
         for item in rights:
             _apply_ai_style(item,prob,channel_layout,'right')
-    left,right=_pair(lefts,rights,th,tw)
+    if evidence_used:
+        # Dashed/solid reporting must be measured from the original paint
+        # pixels, not from the model gate (which can omit a dash entirely).
+        if left is not None:left.update(_marking_metrics(observed_raw,left))
+        if right is not None:right.update(_marking_metrics(observed_raw,right))
     # Geometri doğrulanmışsa düz/düz, düz/kesik ve kesik/kesik çiftleri de
     # geçerlidir.  Tür bilgisi, çizgiyi elemek için değil arayüzde belirtmek
     # için kullanılır.
@@ -340,7 +386,7 @@ def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None,c
         if len(xx)<5:return None
         return np.column_stack([np.round(xx*sx),np.round(ys*sy)]).astype(np.int32)
     lp,rp=bounds(left),bounds(right)
-    observed_mask=cv2.resize(raw,(w,h),interpolation=cv2.INTER_NEAREST)
+    observed_mask=cv2.resize(observed_raw,(w,h),interpolation=cv2.INTER_NEAREST)
     # A small dilation absorbs resize/fit rounding but does not turn a long
     # unobserved curve into measured road paint.
     observed_mask=cv2.dilate(observed_mask,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(5,5)))
@@ -412,4 +458,5 @@ def detect_continuous(frame,settings:LaneSettings|None=None,probabilities=None,c
     det.method='Kesik-düz eşlemeli şerit takibi'
     det.lane_polynomials=(left,right)
     det.marking_types=(left.get('marking') if left else None,right.get('marking') if right else None)
+    det.ai_evidence_used=evidence_used
     return det

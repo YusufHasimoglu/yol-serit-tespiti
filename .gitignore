@@ -25,5 +25,9 @@ __pycache__/
 # UFLD V2'nin 367 MB ONNX ağırlığı kullanıcının bilgisayarında kalır; kaynak
 # kodu ve indirme bilgisi depoda bulunur, model dosyası GitHub'a yüklenmez.
 /modeller/ufldv2_lane_detection.onnx
+# YOLOPv2'nin resmî TorchScript ağırlığı kullanıcı bilgisayarında tutulur.
+/modeller/yolopv2_bdd100k.pt
+# Araştırma sırasında klonlanan resmî kaynak depoları uygulama kaynağı değildir.
+/.third_party/
 /sonuclar/
 /output/
